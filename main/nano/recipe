@@ -1,0 +1,5 @@
+PKG_NAME="nano"
+SRC_URL="https://www.nano-editor.org/dist/v7/nano-7.2.tar.gz"
+
+BUILD_CMD="./configure --prefix=/usr --sysconfdir=/etc && make -j$(nproc)"
+INSTALL_CMD="sudo make install"
