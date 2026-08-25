@@ -1,8 +1,4 @@
 # Nano 9.2 Recipe
 SRC_URL="https://www.nano-editor.org/dist/v9/nano-9.2.tar.xz"
-
-# Explicit build commands with sensible flags
 BUILD_CMD="./configure --prefix=/usr --sysconfdir=/etc --enable-utf8 && make -j$(nproc)"
-
-# Explicit install command utilizing the script's root privilege handler
 INSTALL_CMD="make install"
