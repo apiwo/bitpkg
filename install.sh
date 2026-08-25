@@ -10,20 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 echo "==> Compiling pm with Go..."
-
-
-MOD_CREATED=false
-if [ ! -f "go.mod" ]; then
-    go mod init pm >/dev/null 2>&1 || true
-    MOD_CREATED=true
-fi
-
-go build -o pm main.go
-
-
-if [ "$MOD_CREATED" = true ]; then
-    rm -f go.mod
-fi
+GO111MODULE=off go build -o pm main.go
 
 echo "==> Running initial configuration..."
 ./pm c
