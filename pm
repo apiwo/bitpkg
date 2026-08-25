@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
 set -e
 
-PM_REPO="https://github.com/apiwo/pm.git"
-PM_HOME="${HOME}/.local/share/pm"
+PM_CONFIG="${HOME}/.config/pm/config"
+
+# Load user configuration if present
+if [ -f "$PM_CONFIG" ]; then
+    source "$PM_CONFIG"
+fi
+
+# Fallback defaults if configuration is missing
+PM_REPO="${PM_REPO:-https://github.com/apiwo/pm.git}"
+PM_HOME="${PM_HOME:-${HOME}/.local/share/pm}"
+PREFIX="${PREFIX:-/usr}"
 REPO_DIR="$PM_HOME/repo"
 BUILD_DIR="$PM_HOME/build"
 INSTALLED_FILE="$PM_HOME/installed"
@@ -10,6 +19,7 @@ INSTALLED_FILE="$PM_HOME/installed"
 mkdir -p "$PM_HOME"
 touch "$INSTALLED_FILE"
 
+# Guard check: Ensure script is running with root permissions when required
 require_root() {
     if [ "$(id -u)" -ne 0 ]; then
         echo "Error: Root permissions needed." >&2
@@ -104,7 +114,7 @@ pm_build() {
     if [ -n "$BUILD_CMD" ]; then
         eval "$BUILD_CMD"
     else
-        ./configure --prefix=/usr
+        ./configure --prefix="$PREFIX"
         make -j$(nproc)
     fi
 }
@@ -194,5 +204,3 @@ case "$1" in
         usage
         ;;
 esac
-
-doas chmod +x /usr/bin/pm
