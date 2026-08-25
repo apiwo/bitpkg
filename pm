@@ -36,6 +36,7 @@ usage() {
     echo "  pm re        - Reinstall / update 'pm' itself from GitHub (requires root)"
     echo "  pm b <pkg>   - Build package recipe (requires root)"
     echo "  pm bi <pkg>  - Build and install package recipe (requires root)"
+    echo "  pm i <pkg>   - Install an already compiled package (requires root)"
     echo "  pm r <pkg>   - Remove package and clean build artifacts (requires root)"
     exit 0
 }
@@ -119,16 +120,33 @@ pm_build() {
     fi
 }
 
-pm_build_install() {
+pm_install_only() {
     require_root
     local pkg="$1"
-    pm_build "$pkg"
-    
-    local recipe_dir="$REPO_DIR/main/$pkg"
-    cd "$BUILD_DIR/${pkg}_src/$(ls -t "$BUILD_DIR/${pkg}_src" | head -n 1)"
+    if [ -z "$pkg" ]; then
+        echo "Error: No package specified to install." >&2
+        exit 1
+    fi
 
-    echo "==> Installing $pkg..."
-    source "$recipe_dir/recipe"
+    local recipe_dir="$REPO_DIR/main/$pkg"
+    local build_src="$BUILD_DIR/${pkg}_src"
+
+    if [ ! -d "$build_src" ]; then
+        echo "Error: No compiled build directory found for '$pkg'. Run 'pm b $pkg' first!" >&2
+        exit 1
+    fi
+
+    local target_dir
+    target_dir="$(find "$build_src" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+    if [ -z "$target_dir" ]; then
+        target_dir="$build_src"
+    fi
+    cd "$target_dir"
+
+    echo "==> Installing pre-built $pkg..."
+    if [ -f "$recipe_dir/recipe" ]; then
+        source "$recipe_dir/recipe"
+    fi
 
     if [ -n "$INSTALL_CMD" ]; then
         eval "$INSTALL_CMD"
@@ -141,6 +159,13 @@ pm_build_install() {
     fi
 
     echo "==> Successfully installed $pkg!"
+}
+
+pm_build_install() {
+    require_root
+    local pkg="$1"
+    pm_build "$pkg"
+    pm_install_only "$pkg"
 }
 
 pm_remove() {
@@ -190,6 +215,9 @@ case "$1" in
         ;;
     bi)
         pm_build_install "$2"
+        ;;
+    i)
+        pm_install_only "$2"
         ;;
     l)
         pm_list
