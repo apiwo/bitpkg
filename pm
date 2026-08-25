@@ -10,7 +10,6 @@ INSTALLED_FILE="$PM_HOME/installed"
 mkdir -p "$PM_HOME"
 touch "$INSTALLED_FILE"
 
-# Guard check: Ensure script is running with root permissions when required
 require_root() {
     if [ "$(id -u)" -ne 0 ]; then
         echo "Error: Root permissions needed." >&2
@@ -61,13 +60,14 @@ pm_reinstall_self() {
     if [ -f "$temp_dir/pm_src/pm" ]; then
         cp "$temp_dir/pm_src/pm" /usr/bin/pm
         chmod +x /usr/bin/pm
+        rm -rf "$temp_dir"
         echo "==> 'pm' has been successfully updated to the latest version!"
+        exit 0
     else
         echo "Error: Could not find 'pm' script in the repository root." >&2
         rm -rf "$temp_dir"
         exit 1
     fi
-    rm -rf "$temp_dir"
 }
 
 pm_build() {
