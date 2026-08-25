@@ -1,4 +1,4 @@
 SRC_URL="https://github.com/dylanaraps/pfetch/archive/refs/tags/0.6.0.tar.gz"
 BUILD_CMD="echo 'No build step required for shell scripts'"
-INSTALL_CMD="install -Dm755 pfetch $PREFIX/bin/pfetch"
-REMOVE_CMD="rm -f $PREFIX/bin/pfetch"
+INSTALL_CMD="install -Dm755 pfetch $PREFIX/bin/fetch"
+REMOVE_CMD="rm -f $PREFIX/bin/fetch"
