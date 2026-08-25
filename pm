@@ -13,7 +13,7 @@ touch "$INSTALLED_FILE"
 # Guard check: Ensure script is running with root permissions when required
 require_root() {
     if [ "$(id -u)" -ne 0 ]; then
-        echo "Error: Root permissions needed. Run with sudo or doas." >&2
+        echo "Error: Root permissions needed." >&2
         exit 1
     fi
 }
