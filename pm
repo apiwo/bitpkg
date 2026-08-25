@@ -3,12 +3,10 @@ set -e
 
 PM_CONFIG="${HOME}/.config/pm/config"
 
-# Load user configuration if present
 if [ -f "$PM_CONFIG" ]; then
     source "$PM_CONFIG"
 fi
 
-# Fallback defaults if configuration is missing
 PM_REPO="${PM_REPO:-https://github.com/apiwo/pm.git}"
 PM_HOME="${PM_HOME:-${HOME}/.local/share/pm}"
 PREFIX="${PREFIX:-/usr}"
@@ -20,7 +18,6 @@ INSTALLED_FILE="$PM_HOME/installed"
 mkdir -p "$PM_HOME"
 touch "$INSTALLED_FILE"
 
-# Standard permission check: Ensure the user running the command has root privileges
 require_root() {
     if [ "$(id -u)" -ne 0 ]; then
         echo "Error: Root permissions needed." >&2
@@ -67,7 +64,7 @@ pm_config() {
 
     mkdir -p "$CONFIG_DIR"
     cat << EOF > "$CONFIG_FILE"
-# pm configuration
+
 PREFIX="$PREFIX"
 PM_HOME="$PM_HOME"
 PM_REPO="$PM_REPO"
