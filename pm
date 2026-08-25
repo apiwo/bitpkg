@@ -12,6 +12,7 @@ fi
 PM_REPO="${PM_REPO:-https://github.com/apiwo/pm.git}"
 PM_HOME="${PM_HOME:-${HOME}/.local/share/pm}"
 PREFIX="${PREFIX:-/usr}"
+NPROC="${NPROC:-$(nproc 2>/dev/null || echo 1)}"
 REPO_DIR="$PM_HOME/repo"
 BUILD_DIR="$PM_HOME/build"
 INSTALLED_FILE="$PM_HOME/installed"
@@ -30,15 +31,71 @@ require_root() {
 usage() {
     echo "pm - A simple source-based package manager"
     echo "Usage:"
-    echo "  pm, pm h     - Show this help menu"
-    echo "  pm l         - List installed packages"
-    echo "  pm s, pm u   - Sync / update local repository from GitHub (requires root)"
-    echo "  pm re        - Reinstall / update 'pm' itself from GitHub (requires root)"
-    echo "  pm b <pkg>   - Build package recipe (requires root)"
-    echo "  pm bi <pkg>  - Build and install package recipe (requires root)"
-    echo "  pm i <pkg>   - Install an already compiled package (requires root)"
-    echo "  pm r <pkg>   - Remove package and clean build artifacts (requires root)"
+    echo "  pm, pm h        - Show this help menu"
+    echo "  pm l            - List installed packages"
+    echo "  pm c            - Open interactive configuration menu"
+    echo "  pm s, pm u      - Sync / update local repository from GitHub (requires root)"
+    echo "  pm re           - Reinstall / update 'pm' itself from GitHub (requires root)"
+    echo "  pm b [-s] <pkg>  - Build package recipe (requires root, -s to skip prompt)"
+    echo "  pm bi [-s] <pkg> - Build and install package recipe (requires root, -s to skip prompt)"
+    echo "  pm i [-s] <pkg>  - Install an already compiled package (requires root, -s to skip prompt)"
+    echo "  pm r [-s] <pkg>  - Remove package and clean build artifacts (requires root, -s to skip prompt)"
     exit 0
+}
+
+pm_config() {
+    echo "============================================="
+    echo "        pm Configuration Menu                "
+    echo "============================================="
+    echo ""
+    read -p "Install prefix directory [$PREFIX]: " input_prefix
+    PREFIX="${input_prefix:-$PREFIX}"
+
+    read -p "Package data directory [$PM_HOME]: " input_home
+    PM_HOME="${input_home:-$PM_HOME}"
+
+    read -p "Package repository Git URL [$PM_REPO]: " input_repo
+    PM_REPO="${input_repo:-$PM_REPO}"
+
+    local max_cores
+    max_cores="$(nproc 2>/dev/null || echo 1)"
+    read -p "Number of cores to use for building (1-$max_cores) [$NPROC]: " input_nproc
+    NPROC="${input_nproc:-$NPROC}"
+
+    CONFIG_DIR="${HOME}/.config/pm"
+    CONFIG_FILE="${CONFIG_DIR}/config"
+
+    mkdir -p "$CONFIG_DIR"
+    cat << EOF > "$CONFIG_FILE"
+# pm configuration
+PREFIX="$PREFIX"
+PM_HOME="$PM_HOME"
+PM_REPO="$PM_REPO"
+NPROC="$NPROC"
+EOF
+
+    echo ""
+    echo "==> Configuration saved to $CONFIG_FILE"
+}
+
+confirm_action() {
+    local prompt_msg="$1"
+    local skip_flag="$2"
+    
+    if [ "$skip_flag" = "true" ]; then
+        return 0
+    fi
+
+    read -p "$prompt_msg [Y/n]: " choice
+    case "$choice" in
+        [nN][oO]|[nN])
+            echo "==> Aborted by user."
+            exit 0
+            ;;
+        *)
+            return 0
+            ;;
+    esac
 }
 
 pm_list() {
@@ -73,6 +130,7 @@ pm_reinstall_self() {
         chmod +x /usr/bin/pm
         rm -rf "$temp_dir"
         echo "==> 'pm' has been successfully updated to the latest version!"
+        echo "==> Your configuration file at ~/.config/pm/config remains intact."
         exit 0
     else
         echo "Error: Could not find 'pm' script in the repository root." >&2
@@ -83,6 +141,12 @@ pm_reinstall_self() {
 
 pm_build() {
     require_root
+    local skip_confirm="false"
+    if [ "$1" = "-s" ]; then
+        skip_confirm="true"
+        shift
+    fi
+
     local pkg="$1"
     if [ -z "$pkg" ]; then
         echo "Error: No package specified." >&2
@@ -94,6 +158,8 @@ pm_build() {
         echo "Error: Package '$pkg' not found in main/ directory!" >&2
         exit 1
     fi
+
+    confirm_action "Do you wish to build $pkg?" "$skip_confirm"
 
     mkdir -p "$BUILD_DIR"
     cd "$BUILD_DIR"
@@ -111,17 +177,23 @@ pm_build() {
     cd "${pkg}_src"
     cd "$(ls -d */ | head -n 1)"
 
-    echo "==> Building $pkg..."
+    echo "==> Building $pkg using $NPROC core(s)..."
     if [ -n "$BUILD_CMD" ]; then
         eval "$BUILD_CMD"
     else
         ./configure --prefix="$PREFIX"
-        make -j$(nproc)
+        make -j"$NPROC"
     fi
 }
 
 pm_install_only() {
     require_root
+    local skip_confirm="false"
+    if [ "$1" = "-s" ]; then
+        skip_confirm="true"
+        shift
+    fi
+
     local pkg="$1"
     if [ -z "$pkg" ]; then
         echo "Error: No package specified to install." >&2
@@ -136,6 +208,8 @@ pm_install_only() {
         exit 1
     fi
 
+    confirm_action "Do you wish to install $pkg?" "$skip_confirm"
+
     local target_dir
     target_dir="$(find "$build_src" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
     if [ -z "$target_dir" ]; then
@@ -143,7 +217,7 @@ pm_install_only() {
     fi
     cd "$target_dir"
 
-    echo "==> Installing pre-built $pkg..."
+    echo "==> Installing $pkg..."
     if [ -f "$recipe_dir/recipe" ]; then
         source "$recipe_dir/recipe"
     fi
@@ -163,18 +237,37 @@ pm_install_only() {
 
 pm_build_install() {
     require_root
+    local skip_confirm="false"
+    if [ "$1" = "-s" ]; then
+        skip_confirm="true"
+        shift
+    fi
+
     local pkg="$1"
-    pm_build "$pkg"
-    pm_install_only "$pkg"
+    if [ "$skip_confirm" = "true" ]; then
+        pm_build -s "$pkg"
+        pm_install_only -s "$pkg"
+    else
+        pm_build "$pkg"
+        pm_install_only "$pkg"
+    fi
 }
 
 pm_remove() {
     require_root
+    local skip_confirm="false"
+    if [ "$1" = "-s" ]; then
+        skip_confirm="true"
+        shift
+    fi
+
     local pkg="$1"
     if [ -z "$pkg" ]; then
         echo "Error: No package specified to remove." >&2
         exit 1
     fi
+
+    confirm_action "Do you wish to remove $pkg?" "$skip_confirm"
 
     local recipe_dir="$REPO_DIR/main/$pkg"
     local build_src="$BUILD_DIR/${pkg}_src"
@@ -210,20 +303,27 @@ case "$1" in
     re)
         pm_reinstall_self
         ;;
+    c)
+        pm_config
+        ;;
     b)
-        pm_build "$2"
+        shift
+        pm_build "$@"
         ;;
     bi)
-        pm_build_install "$2"
+        shift
+        pm_build_install "$@"
         ;;
     i)
-        pm_install_only "$2"
+        shift
+        pm_install_only "$@"
         ;;
     l)
         pm_list
         ;;
     r)
-        pm_remove "$2"
+        shift
+        pm_remove "$@"
         ;;
     h|--help|"")
         usage
