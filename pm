@@ -20,7 +20,7 @@ INSTALLED_FILE="$PM_HOME/installed"
 mkdir -p "$PM_HOME"
 touch "$INSTALLED_FILE"
 
-# Guard check: Ensure script is running with root permissions when required
+# Standard permission check: Ensure the user running the command has root privileges
 require_root() {
     if [ "$(id -u)" -ne 0 ]; then
         echo "Error: Root permissions needed." >&2
