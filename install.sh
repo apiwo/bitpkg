@@ -8,7 +8,8 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Run initial interactive configuration setup
+chmod +x "$SCRIPT_DIR/pm"
+
 "$SCRIPT_DIR/pm" c
 
 echo ""
