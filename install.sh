@@ -2,7 +2,7 @@
 set -e
 
 if [ "$(id -u)" -ne 0 ]; then
-    echo "Error: Root permissions needed. Run installer with root permissions (e.g. doas ./install.sh or sudo ./install.sh)." >&2
+    echo "Error: Root permissions needed." >&2
     exit 1
 fi
 
