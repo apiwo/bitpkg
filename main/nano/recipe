@@ -1,5 +1,8 @@
-PKG_NAME="nano"
-SRC_URL="https://www.nano-editor.org/dist/v7/nano-7.2.tar.gz"
+# Nano 9.2 Recipe
+SRC_URL="https://www.nano-editor.org/dist/v9/nano-9.2.tar.xz"
 
-BUILD_CMD="./configure --prefix=/usr --sysconfdir=/etc && make -j$(nproc)"
-INSTALL_CMD="sudo make install"
+# Explicit build commands with sensible flags
+BUILD_CMD="./configure --prefix=/usr --sysconfdir=/etc --enable-utf8 && make -j$(nproc)"
+
+# Explicit install command utilizing the script's root privilege handler
+INSTALL_CMD="make install"
