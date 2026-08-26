@@ -18,13 +18,27 @@ type Config struct {
 	Nproc  string
 }
 
-func getConfigPath() string {
+func getRealHomeDir() string {
+	if sudoUser := os.Getenv("SUDO_USER"); sudoUser != "" {
+		if u, err := os.UserHomeDir(); err == nil && !strings.HasPrefix(u, "/root") {
+			return u
+		}
+		return filepath.Join("/home", sudoUser)
+	}
+	if doasUser := os.Getenv("DOAS_USER"); doasUser != "" {
+		return filepath.Join("/home", doasUser)
+	}
 	home, _ := os.UserHomeDir()
+	return home
+}
+
+func getConfigPath() string {
+	home := getRealHomeDir()
 	return filepath.Join(home, ".config", "pm", "config")
 }
 
 func loadConfig() Config {
-	home, _ := os.UserHomeDir()
+	home := getRealHomeDir()
 	nprocDefault := strconv.Itoa(runtime.NumCPU())
 
 	cfg := Config{
@@ -186,22 +200,16 @@ func findTargetDir(pkgSrcDir string) string {
 		return pkgSrcDir
 	}
 
+	// First pass: find a single top-level directory if present
+	var subDirs []string
 	for _, entry := range entries {
 		if entry.IsDir() {
-			subDir := filepath.Join(pkgSrcDir, entry.Name())
-			if _, err := os.Stat(filepath.Join(subDir, "Makefile")); err == nil {
-				return subDir
-			}
-			if _, err := os.Stat(filepath.Join(subDir, "makefile")); err == nil {
-				return subDir
-			}
-			if _, err := os.Stat(filepath.Join(subDir, "configure")); err == nil {
-				return subDir
-			}
-			if _, err := os.Stat(filepath.Join(subDir, "CMakeLists.txt")); err == nil {
-				return subDir
-			}
+			subDirs = append(subDirs, filepath.Join(pkgSrcDir, entry.Name()))
 		}
+	}
+
+	if len(subDirs) == 1 {
+		return findTargetDir(subDirs[0])
 	}
 
 	return pkgSrcDir
