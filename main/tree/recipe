@@ -1,3 +1,0 @@
-SRC_URL="https://oldmanhook.org/tree/ftp/tree-2.1.1.tgz"
-BUILD_CMD="make -j$NPROC"
-INSTALL_CMD="make install PREFIX=$PREFIX"
