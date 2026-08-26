@@ -180,6 +180,33 @@ func parsePkgArgs(args []string) ([]string, bool) {
 	return pkgs, skipConfirm
 }
 
+// Helper to determine the build root, handling flat archives correctly
+func findTargetDir(pkgSrcDir string) string {
+	entries, err := os.ReadDir(pkgSrcDir)
+	if err != nil {
+		return pkgSrcDir
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			subDir := filepath.Join(pkgSrcDir, entry.Name())
+			// Only switch into subfolder if it contains build files
+			if _, err := os.Stat(filepath.Join(subDir, "Makefile")); err == nil {
+				return subDir
+			}
+			if _, err := os.Stat(filepath.Join(subDir, "configure")); err == nil {
+				return subDir
+			}
+			if _, err := os.Stat(filepath.Join(subDir, "CMakeLists.txt")); err == nil {
+				return subDir
+			}
+		}
+	}
+
+	// Fallback to parent dir for flat extractions or simple binaries
+	return pkgSrcDir
+}
+
 func pmConfig() {
 	cfg := loadConfig()
 	reader := bufio.NewReader(os.Stdin)
@@ -323,14 +350,7 @@ func buildPackage(cfg Config, pkg string, current int, total int, skipConfirm bo
 		}
 	}
 
-	entries, _ := os.ReadDir(pkgSrcDir)
-	targetDir := pkgSrcDir
-	for _, entry := range entries {
-		if entry.IsDir() {
-			targetDir = filepath.Join(pkgSrcDir, entry.Name())
-			break
-		}
-	}
+	targetDir := findTargetDir(pkgSrcDir)
 
 	// Step 3: Building
 	fmt.Println("> Building")
@@ -371,14 +391,7 @@ func installPackage(cfg Config, pkg string, skipConfirm bool) bool {
 		return false
 	}
 
-	targetDir := buildSrc
-	entries, _ := os.ReadDir(buildSrc)
-	for _, entry := range entries {
-		if entry.IsDir() {
-			targetDir = filepath.Join(buildSrc, entry.Name())
-			break
-		}
-	}
+	targetDir := findTargetDir(buildSrc)
 
 	fmt.Printf("\n> Installing to \"%s\"\n", cfg.Prefix)
 	recipeVars := loadRecipe(filepath.Join(recipeDir, "recipe"))
@@ -489,14 +502,7 @@ func pmRemove(cfg Config, args []string) {
 		buildSrc := filepath.Join(buildDir, fmt.Sprintf("%s_src", pkg))
 
 		if _, err := os.Stat(buildSrc); err == nil {
-			targetDir := buildSrc
-			entries, _ := os.ReadDir(buildSrc)
-			for _, entry := range entries {
-				if entry.IsDir() {
-					targetDir = filepath.Join(buildSrc, entry.Name())
-					break
-				}
-			}
+			targetDir := findTargetDir(buildSrc)
 
 			recipeVars := loadRecipe(filepath.Join(recipeDir, "recipe"))
 			envVars := map[string]string{
