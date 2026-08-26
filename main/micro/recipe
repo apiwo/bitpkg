@@ -1,4 +1,5 @@
-SRC_URL="https://github.com/zyedidia/micro/releases/download/v2.0.13/micro-2.0.13-linux64.tar.gz"
-BUILD_CMD="echo 'Precompiled binary, skipping build step.'"
-INSTALL_CMD="cp micro $PREFIX/bin/"
+DEPS="go"
+SRC_URL="https://github.com/zyedidia/micro/archive/refs/tags/v2.0.14.tar.gz"
+BUILD_CMD="go build -o micro ./cmd/micro"
+INSTALL_CMD="install -Dm755 micro $PREFIX/bin/micro"
 REMOVE_CMD="rm -f $PREFIX/bin/micro"
