@@ -1,5 +1,5 @@
 DEPS="make"
-SRC_URL="https://www.nano-editor.org/dist/v8/nano-8.0.tar.xz"
+SRC_URL="https://www.nano-editor.org/dist/v9/nano-9.2.tar.xz"
 BUILD_CMD="CC=$CC ./configure --prefix=$PREFIX && make -j$NPROC"
 INSTALL_CMD="make install"
 REMOVE_CMD="make uninstall"
