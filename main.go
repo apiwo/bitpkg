@@ -180,7 +180,6 @@ func parsePkgArgs(args []string) ([]string, bool) {
 	return pkgs, skipConfirm
 }
 
-// Helper to determine the build root, handling flat archives correctly
 func findTargetDir(pkgSrcDir string) string {
 	entries, err := os.ReadDir(pkgSrcDir)
 	if err != nil {
@@ -190,8 +189,10 @@ func findTargetDir(pkgSrcDir string) string {
 	for _, entry := range entries {
 		if entry.IsDir() {
 			subDir := filepath.Join(pkgSrcDir, entry.Name())
-			// Only switch into subfolder if it contains build files
 			if _, err := os.Stat(filepath.Join(subDir, "Makefile")); err == nil {
+				return subDir
+			}
+			if _, err := os.Stat(filepath.Join(subDir, "makefile")); err == nil {
 				return subDir
 			}
 			if _, err := os.Stat(filepath.Join(subDir, "configure")); err == nil {
@@ -203,7 +204,6 @@ func findTargetDir(pkgSrcDir string) string {
 		}
 	}
 
-	// Fallback to parent dir for flat extractions or simple binaries
 	return pkgSrcDir
 }
 
