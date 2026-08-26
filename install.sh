@@ -3,7 +3,7 @@ set -e
 
 echo "==> Welcome to the Bit package manager (bitpkg) installer"
 if [ "$(id -u)" -ne 0 ]; then
-    echo "Please run this installer as root (sudo or doas)."
+    echo "Please run this installer as root."
     exit 1
 fi
 
@@ -18,6 +18,13 @@ CONFIG_DIR="$USER_HOME/.config/bit"
 DATA_DIR="$USER_HOME/.local/share/bit"
 
 echo "==> Compiling bit..."
+TEMP_BUILD_DIR=$(mktemp -d)
+trap 'rm -rf "$TEMP_BUILD_DIR"' EXIT
+
+git clone --quiet https://github.com/apiwo/bit.git "$TEMP_BUILD_DIR"
+cd "$TEMP_BUILD_DIR"
+
+go mod init bit 2>/dev/null || true
 go build -o /usr/bin/bit main.go
 chmod 755 /usr/bin/bit
 
