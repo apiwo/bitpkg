@@ -1,0 +1,48 @@
+.TH BIT 1 "August 2026" "bitpkg" "User Commands"
+.SH NAME
+bit \- Bit package manager (bitpkg)
+.SH SYNOPSIS
+.B bit
+[\fICOMMAND\fR] [\fIOPTIONS\fR] [\fIPACKAGES...\fR]
+.SH DESCRIPTION
+.B bit
+is a lightweight, hybrid source/binary package manager. It supports interactive configuration, dynamic compiler swapping, automatic dependency resolution, and direct binary overlaying.
+.SH COMMANDS
+.TP
+.B h
+Show the help menu.
+.TP
+.B l
+List installed packages.
+.TP
+.B c
+Open interactive configuration menu to set PREFIX, data paths, compiler (CC), and default behavior (source vs binary).
+.TP
+.B s, u
+Sync or update the local repository from the configured Git URL.
+.TP
+.B re
+Reinstall or update the package manager itself from the Git repository.
+.TP
+.B b [-s] \fI<pkgs...>\fR
+Build the specified package recipe(s). Use \fB-s\fR to skip confirmation prompts.
+.TP
+.B bi [-s] \fI<pkgs...>\fR
+Build and immediately install the specified package recipe(s).
+.TP
+.B i [-s] \fI<pkgs...>\fR
+Install a package that has already been compiled in the build directory.
+.TP
+.B r [-s] \fI<pkgs...>\fR
+Remove the specified package(s) and clean up leftover build artifacts.
+.TP
+.B fi [-b] \fI<path>\fR
+Install a package from a local file. Pass the path to a source recipe, or use \fB-b\fR to install directly from a binary \fB.tar.xz\fR archive.
+.SH REPOSITORY STRUCTURE
+The package repository is split into two main sections:
+.IP \[bu] 2
+\fBmain/\fR: Contains directories for each package, housing the \fBrecipe\fR file.
+.IP \[bu] 2
+\fBbinary/\fR: Contains directories for each package, housing the pre-compiled \fB.tar.xz\fR archive structured for the target PREFIX.
+.SH AUTHOR
+Written by apiwo.
