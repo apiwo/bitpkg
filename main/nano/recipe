@@ -1,4 +1,5 @@
-# Nano 9.2 Recipe
-SRC_URL="https://www.nano-editor.org/dist/v9/nano-9.2.tar.xz"
-BUILD_CMD="./configure --prefix=/usr --sysconfdir=/etc --enable-utf8 && make -j$(nproc)"
+DEPS="make gcc"
+SRC_URL="https://www.nano-editor.org/dist/v8/nano-8.0.tar.xz"
+BUILD_CMD="./configure --prefix=$PREFIX && make -j$NPROC"
 INSTALL_CMD="make install"
+REMOVE_CMD="make uninstall"
