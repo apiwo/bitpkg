@@ -92,21 +92,21 @@ func requireRoot() {
 func usage() {
 	fmt.Println("pm - A simple source-based package manager")
 	fmt.Println("Usage:")
-	fmt.Println("  pm, pm h        - Show this help menu")
-	fmt.Println("  pm l            - List installed packages")
-	fmt.Println("  pm c            - Open interactive configuration menu")
-	fmt.Println("  pm s, pm u      - Sync / update local repository from GitHub (requires root)")
-	fmt.Println("  pm re           - Reinstall / update 'pm' itself from GitHub (requires root)")
-	fmt.Println("  pm b [-s] <pkg>  - Build package recipe (requires root, -s to skip prompt)")
-	fmt.Println("  pm bi [-s] <pkg> - Build and install package recipe (requires root, -s to skip prompt)")
-	fmt.Println("  pm i [-s] <pkg>  - Install an already compiled package (requires root, -s to skip prompt)")
-	fmt.Println("  pm r [-s] <pkg>  - Remove package and clean build artifacts (requires root, -s to skip prompt)")
+	fmt.Println("  pm, pm h             - Show this help menu")
+	fmt.Println("  pm l                 - List installed packages")
+	fmt.Println("  pm c                 - Open interactive configuration menu")
+	fmt.Println("  pm s, pm u           - Sync / update local repository from GitHub (requires root)")
+	fmt.Println("  pm re                - Reinstall / update 'pm' itself from GitHub (requires root)")
+	fmt.Println("  pm b [-s] <pkgs...>  - Build package recipe(s) (requires root, -s to skip prompt)")
+	fmt.Println("  pm bi [-s] <pkgs...> - Build and install package recipe(s) (requires root, -s to skip prompt)")
+	fmt.Println("  pm i [-s] <pkgs...>  - Install already compiled package(s) (requires root, -s to skip prompt)")
+	fmt.Println("  pm r [-s] <pkgs...>  - Remove package(s) and clean build artifacts (requires root, -s to skip prompt)")
 	os.Exit(0)
 }
 
-func confirmAction(promptMsg string, skipFlag bool) {
+func confirmAction(promptMsg string, skipFlag bool) bool {
 	if skipFlag {
-		return
+		return true
 	}
 
 	fmt.Printf("%s [Y/n]: ", promptMsg)
@@ -115,9 +115,10 @@ func confirmAction(promptMsg string, skipFlag bool) {
 	choice = strings.TrimSpace(choice)
 
 	if strings.ToLower(choice) == "n" || strings.ToLower(choice) == "no" {
-		fmt.Println("==> Aborted by user.")
-		os.Exit(0)
+		fmt.Println("==> Skipped by user.")
+		return false
 	}
+	return true
 }
 
 func loadRecipe(recipePath string) map[string]string {
@@ -158,12 +159,33 @@ func executeShell(cmdStr string, dir string, envVars map[string]string) error {
 	return cmd.Run()
 }
 
+func capitalize(s string) string {
+	if len(s) == 0 {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+func parsePkgArgs(args []string) ([]string, bool) {
+	skipConfirm := false
+	var pkgs []string
+
+	for _, arg := range args {
+		if arg == "-s" {
+			skipConfirm = true
+		} else if strings.TrimSpace(arg) != "" {
+			pkgs = append(pkgs, arg)
+		}
+	}
+	return pkgs, skipConfirm
+}
+
 func pmConfig() {
 	cfg := loadConfig()
 	reader := bufio.NewReader(os.Stdin)
 
 	fmt.Println("=============================================")
-	fmt.Println("        pm Configuration Menu                ")
+	fmt.Println("         pm Configuration Menu               ")
 	fmt.Println("=============================================")
 	fmt.Println("")
 
@@ -256,20 +278,7 @@ func pmReinstallSelf(cfg Config) {
 	}
 }
 
-func pmBuild(cfg Config, args []string) {
-	requireRoot()
-	skipConfirm := false
-	if len(args) > 0 && args[0] == "-s" {
-		skipConfirm = true
-		args = args[1:]
-	}
-
-	if len(args) == 0 || args[0] == "" {
-		fmt.Fprintln(os.Stderr, "Error: No package specified.")
-		os.Exit(1)
-	}
-
-	pkg := args[0]
+func buildPackage(cfg Config, pkg string, current int, total int, skipConfirm bool) bool {
 	repoDir := filepath.Join(cfg.PmHome, "repo")
 	buildDir := filepath.Join(cfg.PmHome, "build")
 	recipeDir := filepath.Join(repoDir, "main", pkg)
@@ -277,21 +286,28 @@ func pmBuild(cfg Config, args []string) {
 
 	if _, err := os.Stat(recipeFile); os.IsNotExist(err) {
 		fmt.Printf("Error: Package '%s' not found in main/ directory!\n", pkg)
-		os.Exit(1)
+		return false
 	}
 
-	confirmAction(fmt.Sprintf("Do you wish to build %s?", pkg), skipConfirm)
+	capName := capitalize(pkg)
+	if !confirmAction(fmt.Sprintf("\nDo you wish to build %s?", pkg), skipConfirm) {
+		return false
+	}
+
+	fmt.Printf("\n==> Building package (%d of %d) %s\n\n", current, total, capName)
 
 	os.MkdirAll(buildDir, 0755)
-
-	fmt.Printf("==> Loading recipe for %s...\n", pkg)
 	recipeVars := loadRecipe(recipeFile)
 	srcURL := recipeVars["SRC_URL"]
 
-	fmt.Printf("==> Downloading source: %s...\n", srcURL)
+	// Step 1: Fetching source
+	fmt.Printf("=> Step (1 of 3) for package %s\n", capName)
+	fmt.Println("> Fetching source [\\"] (1)")
 	archivePath := filepath.Join(buildDir, fmt.Sprintf("%s_source_archive", pkg))
 	exec.Command("wget", "-q", "--show-progress", srcURL, "-O", archivePath).Run()
 
+	// Step 2: Unpacking
+	fmt.Println("> Unpacking [\\"] (2)")
 	pkgSrcDir := filepath.Join(buildDir, fmt.Sprintf("%s_src", pkg))
 	os.RemoveAll(pkgSrcDir)
 	os.MkdirAll(pkgSrcDir, 0755)
@@ -313,33 +329,29 @@ func pmBuild(cfg Config, args []string) {
 		}
 	}
 
-	fmt.Printf("==> Building %s using %s core(s)...\n", pkg, cfg.Nproc)
+	// Step 3: Building
+	fmt.Println("> Building [\\"] (3)")
 	envVars := map[string]string{
 		"PREFIX": cfg.Prefix,
 		"NPROC":  cfg.Nproc,
 	}
 
+	var buildErr error
 	if buildCmd, ok := recipeVars["BUILD_CMD"]; ok && buildCmd != "" {
-		executeShell(buildCmd, targetDir, envVars)
+		buildErr = executeShell(buildCmd, targetDir, envVars)
 	} else {
-		executeShell(fmt.Sprintf("./configure --prefix=%s && make -j%s", cfg.Prefix, cfg.Nproc), targetDir, envVars)
+		buildErr = executeShell(fmt.Sprintf("./configure --prefix=%s && make -j%s", cfg.Prefix, cfg.Nproc), targetDir, envVars)
 	}
+
+	if buildErr != nil {
+		fmt.Printf("Error building package %s: %v\n", pkg, buildErr)
+		return false
+	}
+
+	return true
 }
 
-func pmInstallOnly(cfg Config, args []string) {
-	requireRoot()
-	skipConfirm := false
-	if len(args) > 0 && args[0] == "-s" {
-		skipConfirm = true
-		args = args[1:]
-	}
-
-	if len(args) == 0 || args[0] == "" {
-		fmt.Fprintln(os.Stderr, "Error: No package specified to install.")
-		os.Exit(1)
-	}
-
-	pkg := args[0]
+func installPackage(cfg Config, pkg string, skipConfirm bool) bool {
 	repoDir := filepath.Join(cfg.PmHome, "repo")
 	buildDir := filepath.Join(cfg.PmHome, "build")
 	installedFile := filepath.Join(cfg.PmHome, "installed")
@@ -347,11 +359,14 @@ func pmInstallOnly(cfg Config, args []string) {
 	buildSrc := filepath.Join(buildDir, fmt.Sprintf("%s_src", pkg))
 
 	if _, err := os.Stat(buildSrc); os.IsNotExist(err) {
-		fmt.Printf("Error: No compiled build directory found for '%s'. Run 'pm b %s' first!\n", pkg, pkg)
-		os.Exit(1)
+		fmt.Printf("Error: No compiled build directory found for '%s'. Run build step first!\n", pkg)
+		return false
 	}
 
-	confirmAction(fmt.Sprintf("Do you wish to install %s?", pkg), skipConfirm)
+	capName := capitalize(pkg)
+	if !confirmAction(fmt.Sprintf("\nDo you wish to install %s?", capName), skipConfirm) {
+		return false
+	}
 
 	targetDir := buildSrc
 	entries, _ := os.ReadDir(buildSrc)
@@ -362,17 +377,23 @@ func pmInstallOnly(cfg Config, args []string) {
 		}
 	}
 
-	fmt.Printf("==> Installing %s...\n", pkg)
+	fmt.Printf("\n> Installing to \"%s\"\n", cfg.Prefix)
 	recipeVars := loadRecipe(filepath.Join(recipeDir, "recipe"))
 	envVars := map[string]string{
 		"PREFIX": cfg.Prefix,
 		"NPROC":  cfg.Nproc,
 	}
 
+	var installErr error
 	if installCmd, ok := recipeVars["INSTALL_CMD"]; ok && installCmd != "" {
-		executeShell(installCmd, targetDir, envVars)
+		installErr = executeShell(installCmd, targetDir, envVars)
 	} else {
-		executeShell("make install", targetDir, envVars)
+		installErr = executeShell("make install", targetDir, envVars)
+	}
+
+	if installErr != nil {
+		fmt.Printf("Error installing package %s: %v\n", pkg, installErr)
+		return false
 	}
 
 	installedData, _ := os.ReadFile(installedFile)
@@ -393,80 +414,121 @@ func pmInstallOnly(cfg Config, args []string) {
 		}
 	}
 
-	fmt.Printf("==> Successfully installed %s!\n", pkg)
+	fmt.Printf("==> Successfully installed %s!\n", capName)
+	return true
+}
+
+func pmBuild(cfg Config, args []string) {
+	requireRoot()
+	pkgs, skipConfirm := parsePkgArgs(args)
+	if len(pkgs) == 0 {
+		fmt.Fprintln(os.Stderr, "Error: No package specified.")
+		os.Exit(1)
+	}
+
+	total := len(pkgs)
+	for i, pkg := range pkgs {
+		buildPackage(cfg, pkg, i+1, total, skipConfirm)
+	}
+}
+
+func pmInstallOnly(cfg Config, args []string) {
+	requireRoot()
+	pkgs, skipConfirm := parsePkgArgs(args)
+	if len(pkgs) == 0 {
+		fmt.Fprintln(os.Stderr, "Error: No package specified to install.")
+		os.Exit(1)
+	}
+
+	for _, pkg := range pkgs {
+		installPackage(cfg, pkg, skipConfirm)
+	}
 }
 
 func pmBuildInstall(cfg Config, args []string) {
-	pmBuild(cfg, args)
-	pmInstallOnly(cfg, args)
+	requireRoot()
+	pkgs, skipConfirm := parsePkgArgs(args)
+	if len(pkgs) == 0 {
+		fmt.Fprintln(os.Stderr, "Error: No package specified.")
+		os.Exit(1)
+	}
+
+	total := len(pkgs)
+	for i, pkg := range pkgs {
+		if buildPackage(cfg, pkg, i+1, total, skipConfirm) {
+			installPackage(cfg, pkg, skipConfirm)
+		}
+	}
 }
 
 func pmRemove(cfg Config, args []string) {
 	requireRoot()
-	skipConfirm := false
-	if len(args) > 0 && args[0] == "-s" {
-		skipConfirm = true
-		args = args[1:]
-	}
-
-	if len(args) == 0 || args[0] == "" {
+	pkgs, skipConfirm := parsePkgArgs(args)
+	if len(pkgs) == 0 {
 		fmt.Fprintln(os.Stderr, "Error: No package specified to remove.")
 		os.Exit(1)
 	}
 
-	pkg := args[0]
 	repoDir := filepath.Join(cfg.PmHome, "repo")
 	buildDir := filepath.Join(cfg.PmHome, "build")
 	installedFile := filepath.Join(cfg.PmHome, "installed")
-	recipeDir := filepath.Join(repoDir, "main", pkg)
-	buildSrc := filepath.Join(buildDir, fmt.Sprintf("%s_src", pkg))
 
-	confirmAction(fmt.Sprintf("Do you wish to remove %s?", pkg), skipConfirm)
+	total := len(pkgs)
+	for i, pkg := range pkgs {
+		capName := capitalize(pkg)
+		if !confirmAction(fmt.Sprintf("\nDo you wish to remove %s?", capName), skipConfirm) {
+			continue
+		}
 
-	if _, err := os.Stat(buildSrc); err == nil {
-		targetDir := buildSrc
-		entries, _ := os.ReadDir(buildSrc)
-		for _, entry := range entries {
-			if entry.IsDir() {
-				targetDir = filepath.Join(buildSrc, entry.Name())
-				break
+		fmt.Printf("\n==> Removing package (%d of %d) %s...\n", i+1, total, capName)
+
+		recipeDir := filepath.Join(repoDir, "main", pkg)
+		buildSrc := filepath.Join(buildDir, fmt.Sprintf("%s_src", pkg))
+
+		if _, err := os.Stat(buildSrc); err == nil {
+			targetDir := buildSrc
+			entries, _ := os.ReadDir(buildSrc)
+			for _, entry := range entries {
+				if entry.IsDir() {
+					targetDir = filepath.Join(buildSrc, entry.Name())
+					break
+				}
+			}
+
+			recipeVars := loadRecipe(filepath.Join(recipeDir, "recipe"))
+			envVars := map[string]string{
+				"PREFIX": cfg.Prefix,
+				"NPROC":  cfg.Nproc,
+			}
+
+			if removeCmd, ok := recipeVars["REMOVE_CMD"]; ok && removeCmd != "" {
+				executeShell(removeCmd, targetDir, envVars)
+			} else if _, err := os.Stat(filepath.Join(targetDir, "Makefile")); err == nil {
+				executeShell("make uninstall", targetDir, envVars)
 			}
 		}
 
-		recipeVars := loadRecipe(filepath.Join(recipeDir, "recipe"))
-		envVars := map[string]string{
-			"PREFIX": cfg.Prefix,
-			"NPROC":  cfg.Nproc,
-		}
+		fmt.Printf("==> Cleaning up build junk for %s...\n", capName)
+		os.RemoveAll(buildSrc)
+		os.RemoveAll(filepath.Join(buildDir, fmt.Sprintf("%s_source_archive", pkg)))
 
-		fmt.Printf("==> Removing %s...\n", pkg)
-		if removeCmd, ok := recipeVars["REMOVE_CMD"]; ok && removeCmd != "" {
-			executeShell(removeCmd, targetDir, envVars)
-		} else if _, err := os.Stat(filepath.Join(targetDir, "Makefile")); err == nil {
-			executeShell("make uninstall", targetDir, envVars)
-		}
-	}
-
-	fmt.Printf("==> Cleaning up build junk for %s...\n", pkg)
-	os.RemoveAll(buildSrc)
-	os.RemoveAll(filepath.Join(buildDir, fmt.Sprintf("%s_source_archive", pkg)))
-
-	if data, err := os.ReadFile(installedFile); err == nil {
-		lines := strings.Split(string(data), "\n")
-		var newLines []string
-		for _, line := range lines {
-			if strings.TrimSpace(line) != pkg && strings.TrimSpace(line) != "" {
-				newLines = append(newLines, line)
+		if data, err := os.ReadFile(installedFile); err == nil {
+			lines := strings.Split(string(data), "\n")
+			var newLines []string
+			for _, line := range lines {
+				if strings.TrimSpace(line) != pkg && strings.TrimSpace(line) != "" {
+					newLines = append(newLines, line)
+				}
 			}
+			newContent := strings.Join(newLines, "\n")
+			if len(newLines) > 0 {
+				newContent += "\n"
+			}
+			os.WriteFile(installedFile, []byte(newContent), 0644)
 		}
-		newContent := strings.Join(newLines, "\n")
-		if len(newLines) > 0 {
-			newContent += "\n"
-		}
-		os.WriteFile(installedFile, []byte(newContent), 0644)
-	}
 
-	fmt.Printf("==> Successfully removed %s and cleaned up.\n", pkg)
+		fmt.Printf("==> Successfully removed %s!\n", capName)
+	}
 }
 
 func main() {
