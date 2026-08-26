@@ -1,5 +1,5 @@
-DEPS="make gcc autoconf automake"
+DEPS="make autoconf automake"
 SRC_URL="https://github.com/htop-dev/htop/releases/download/3.3.0/htop-3.3.0.tar.xz"
-BUILD_CMD="./configure --prefix=$PREFIX && make -j$NPROC"
+BUILD_CMD="CC=$CC ./configure --prefix=$PREFIX && make -j$NPROC"
 INSTALL_CMD="make install"
 REMOVE_CMD="make uninstall"
