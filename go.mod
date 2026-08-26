@@ -1,3 +1,3 @@
-module github.com/apiwo/pm
+module bit
 
 go 1.20
