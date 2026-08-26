@@ -1,27 +1,11 @@
-#!/usr/bin/env bash
+#!/bin/sh
 set -e
 
-if [ "$(id -u)" -ne 0 ]; then
-    echo "Error: Root permissions needed. Run installer with root (e.g. doas ./install.sh or sudo ./install.sh)." >&2
-    exit 1
-fi
+echo "==> Compiling pm"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+SRC_DIR="$(dirname "$(realpath "$0")")"
 
-echo "==> Compiling pm with Go..."
-GO111MODULE=off go build -o pm main.go
+GO111MODULE=off go build -o /usr/bin/pm ./main.go
 
-echo "==> Running initial configuration..."
-./pm c
-
-echo ""
-echo "==> Installing binary to /usr/bin/pm..."
-cp pm /usr/bin/pm
 chmod +x /usr/bin/pm
-
-echo "==> Syncing package repository..."
-/usr/bin/pm s
-
-echo ""
-echo "Setup complete! Run 'pm' for available options."
+echo "==> Installation complete!"
