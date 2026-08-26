@@ -1,4 +1,5 @@
+DEPS="cmake make gcc"
 SRC_URL="https://github.com/fastfetch-cli/fastfetch/archive/refs/tags/2.8.0.tar.gz"
-BUILD_CMD="mkdir -p build && cd build && cmake -DCMAKE_INSTALL_PREFIX=$PREFIX .. && make -j$NPROC"
-INSTALL_CMD="cd build && make install"
+BUILD_CMD="cmake -B build -DCMAKE_INSTALL_PREFIX=$PREFIX && cmake --build build -j$NPROC"
+INSTALL_CMD="cmake --install build"
 REMOVE_CMD="rm -f $PREFIX/bin/fastfetch"
