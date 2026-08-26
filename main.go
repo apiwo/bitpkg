@@ -200,7 +200,6 @@ func findTargetDir(pkgSrcDir string) string {
 		return pkgSrcDir
 	}
 
-	// First pass: find a single top-level directory if present
 	var subDirs []string
 	for _, entry := range entries {
 		if entry.IsDir() {
@@ -267,6 +266,9 @@ func pmSync(cfg Config) {
 	requireRoot()
 	repoDir := filepath.Join(cfg.PmHome, "repo")
 	fmt.Printf("==> Syncing packages from %s...\n", cfg.PmRepo)
+
+	// Automatically allow Git access under root/doas to prevent safe.directory ownership errors
+	exec.Command("git", "config", "--global", "--add", "safe.directory", repoDir).Run()
 
 	if _, err := os.Stat(filepath.Join(repoDir, ".git")); err == nil {
 		cmd := exec.Command("git", "-C", repoDir, "pull")
