@@ -264,6 +264,9 @@ func pmReinstallSelf(cfg Config) {
 	srcPath := filepath.Join(tempDir, "pm_src")
 	if _, err := os.Stat(filepath.Join(srcPath, "main.go")); err == nil {
 		buildCmd := exec.Command("go", "build", "-o", "/usr/bin/pm", filepath.Join(srcPath, "main.go"))
+		buildCmd.Dir = srcPath
+		buildCmd.Env = append(os.Environ(), "GO111MODULE=off")
+
 		if err := buildCmd.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error building updated pm binary: %v\n", err)
 			os.Exit(1)
@@ -302,12 +305,12 @@ func buildPackage(cfg Config, pkg string, current int, total int, skipConfirm bo
 
 	// Step 1: Fetching source
 	fmt.Printf("=> Step (1 of 3) for package %s\n", capName)
-	fmt.Println("> Fetching source [\\"] (1)")
+	fmt.Println("> Fetching source")
 	archivePath := filepath.Join(buildDir, fmt.Sprintf("%s_source_archive", pkg))
 	exec.Command("wget", "-q", "--show-progress", srcURL, "-O", archivePath).Run()
 
 	// Step 2: Unpacking
-	fmt.Println("> Unpacking [\\"] (2)")
+	fmt.Println("> Unpacking")
 	pkgSrcDir := filepath.Join(buildDir, fmt.Sprintf("%s_src", pkg))
 	os.RemoveAll(pkgSrcDir)
 	os.MkdirAll(pkgSrcDir, 0755)
@@ -330,7 +333,7 @@ func buildPackage(cfg Config, pkg string, current int, total int, skipConfirm bo
 	}
 
 	// Step 3: Building
-	fmt.Println("> Building [\\"] (3)")
+	fmt.Println("> Building")
 	envVars := map[string]string{
 		"PREFIX": cfg.Prefix,
 		"NPROC":  cfg.Nproc,
