@@ -21,7 +21,7 @@ echo "==> Compiling bit..."
 TEMP_BUILD_DIR=$(mktemp -d)
 trap 'rm -rf "$TEMP_BUILD_DIR"' EXIT
 
-git clone --quiet https://github.com/apiwo/bit.git "$TEMP_BUILD_DIR"
+git clone --quiet https://github.com/apiwo/bitpkg.git "$TEMP_BUILD_DIR"
 cd "$TEMP_BUILD_DIR"
 
 GO111MODULE=off go build -o /usr/bin/bit main.go
@@ -45,7 +45,7 @@ NPROC=$(nproc 2>/dev/null || echo 1)
 cat <<EOF > "$CONFIG_DIR/config"
 PREFIX="$PREFIX"
 BIT_HOME="$DATA_DIR"
-BIT_REPO="https://github.com/apiwo/bit.git"
+BIT_REPO="https://github.com/apiwo/bitpkg.git"
 NPROC="$NPROC"
 CC="$CC"
 PKG_MODE="$PKG_MODE"
