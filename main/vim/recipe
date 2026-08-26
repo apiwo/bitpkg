@@ -1,4 +1,5 @@
+DEPS="make"
 SRC_URL="https://github.com/vim/vim/archive/refs/tags/v9.2.0.tar.gz"
-BUILD_CMD="./configure --prefix=$PREFIX --enable-multibyte --enable-terminal --with-features=huge && make -j$NPROC"
+BUILD_CMD="CC=$CC ./configure --prefix=$PREFIX --enable-multibyte --enable-terminal --with-features=huge && make -j$NPROC"
 INSTALL_CMD="make install"
 REMOVE_CMD="make uninstall"
