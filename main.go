@@ -55,7 +55,7 @@ func loadConfig() Config {
 	cfg := Config{
 		Prefix:  "/usr",
 		BitHome: filepath.Join(home, ".local", "share", "bit"),
-		BitRepo: "https://github.com/apiwo/bit.git",
+		BitRepo: "https://github.com/apiwo/bitpkg.git",
 		Nproc:   nprocDefault,
 		CC:      "gcc",
 		PkgMode: "ask",
@@ -124,7 +124,7 @@ func usage() {
 	fmt.Println("  bit, bit h             - Show this help menu")
 	fmt.Println("  bit l                  - List installed packages")
 	fmt.Println("  bit c                  - Open interactive configuration menu")
-	fmt.Println("  bit s, bit u           - Sync / update local repository from GitHub")
+	fmt.Println("  bit s [-l], bit u [-l] - Sync repository (-l to list synced packages)")
 	fmt.Println("  bit re                 - Reinstall / update 'bit' itself from GitHub")
 	fmt.Println("  bit b [-s] <pkgs...>   - Build package recipe(s)")
 	fmt.Println("  bit bi [-s] <pkgs...>  - Build and install package recipe(s)")
@@ -251,19 +251,19 @@ func determineInstallMode(cfg Config, pkg string, skipConfirm bool) string {
 		}
 		return "binary"
 	}
-	
+
 	if mode == "binary" && !hasBinary {
 		fmt.Printf("%s==>%s Binary requested but not found for %s, falling back to source.\n", ColorYellow, ColorReset, pkg)
 		return "source"
 	}
-	
+
 	return mode
 }
 
 func installBinaryDirect(cfg Config, pkg string) bool {
 	binaryPath := filepath.Join(cfg.BitHome, "repo", "binary", pkg, fmt.Sprintf("%s.tar.xz", pkg))
 	fmt.Printf("\n%s==>%s Installing binary package %s to %s\n", ColorGreen, ColorReset, pkg, cfg.Prefix)
-	
+
 	cmd := exec.Command("tar", "-xJf", binaryPath, "-C", cfg.Prefix)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -271,19 +271,27 @@ func installBinaryDirect(cfg Config, pkg string) bool {
 		fmt.Printf("%sError extracting binary %s: %v%s\n", ColorRed, pkg, err, ColorReset)
 		return false
 	}
-	
+
 	markInstalled(cfg, pkg)
 	fmt.Printf("%s==>%s Successfully installed %s!\n", ColorGreen, ColorReset, pkg)
 	return true
 }
 
 func resolveDependencies(cfg Config, pkg string, skipConfirm bool, visited map[string]bool) bool {
-	if visited[pkg] { return true }
+	if visited[pkg] {
+		return true
+	}
 	visited[pkg] = true
 
 	recipeFile := filepath.Join(cfg.BitHome, "repo", "main", pkg, "recipe")
+	if _, err := os.Stat(recipeFile); os.IsNotExist(err) {
+		recipeFile = filepath.Join(cfg.BitHome, "repo", "repo", "main", pkg, "recipe")
+	}
+
 	vars := loadRecipe(recipeFile)
-	if strings.TrimSpace(vars["DEPS"]) == "" { return true }
+	if strings.TrimSpace(vars["DEPS"]) == "" {
+		return true
+	}
 
 	var missing []string
 	for _, dep := range strings.Fields(vars["DEPS"]) {
@@ -298,13 +306,19 @@ func resolveDependencies(cfg Config, pkg string, skipConfirm bool, visited map[s
 
 	var installable, unresolvable []string
 	for _, dep := range missing {
-		if _, err := os.Stat(filepath.Join(cfg.BitHome, "repo", "main", dep, "recipe")); os.IsNotExist(err) {
+		depRecipe := filepath.Join(cfg.BitHome, "repo", "main", dep, "recipe")
+		if _, err := os.Stat(depRecipe); os.IsNotExist(err) {
+			depRecipe = filepath.Join(cfg.BitHome, "repo", "repo", "main", dep, "recipe")
+		}
+		
+		if _, err := os.Stat(depRecipe); os.IsNotExist(err) {
 			fmt.Printf("%s==>%s Interrupt: Dependency %s not found on system cannot be satisfied.\n", ColorRed, ColorReset, dep)
 			unresolvable = append(unresolvable, dep)
 		} else {
 			installable = append(installable, dep)
 		}
 	}
+	
 	if len(unresolvable) > 0 {
 		fmt.Printf("%s==>%s Missing dependencies: %s\n", ColorRed, ColorReset, strings.Join(unresolvable, ", "))
 		fmt.Printf("%s==>%s Fatal: Task cannot be completed.\n", ColorRed, ColorReset)
@@ -314,8 +328,10 @@ func resolveDependencies(cfg Config, pkg string, skipConfirm bool, visited map[s
 	fmt.Printf("%s==>%s Satisfying dependencies for %s...\n", ColorGreen, ColorReset, pkg)
 	for i, dep := range installable {
 		fmt.Printf("%s==>%s Installing dependency (%d of %d) for package %s\n", ColorGreen, ColorReset, i+1, len(installable), pkg)
-		if !resolveDependencies(cfg, dep, skipConfirm, visited) { return false }
-		
+		if !resolveDependencies(cfg, dep, skipConfirm, visited) {
+			return false
+		}
+
 		mode := determineInstallMode(cfg, dep, skipConfirm)
 		if mode == "binary" {
 			installBinaryDirect(cfg, dep)
@@ -333,20 +349,28 @@ func bitConfig() {
 	reader := bufio.NewReader(os.Stdin)
 
 	fmt.Println("=============================================")
-	fmt.Println("         bit Configuration Menu              ")
+	fmt.Println("          bit Configuration Menu             ")
 	fmt.Println("=============================================")
 
 	fmt.Printf("Install prefix directory [%s]: ", cfg.Prefix)
-	if val, _ := reader.ReadString('\n'); strings.TrimSpace(val) != "" { cfg.Prefix = strings.TrimSpace(val) }
+	if val, _ := reader.ReadString('\n'); strings.TrimSpace(val) != "" {
+		cfg.Prefix = strings.TrimSpace(val)
+	}
 
 	fmt.Printf("Package data directory [%s]: ", cfg.BitHome)
-	if val, _ := reader.ReadString('\n'); strings.TrimSpace(val) != "" { cfg.BitHome = strings.TrimSpace(val) }
+	if val, _ := reader.ReadString('\n'); strings.TrimSpace(val) != "" {
+		cfg.BitHome = strings.TrimSpace(val)
+	}
 
 	fmt.Printf("Compiler (gcc, clang, tcc) [%s]: ", cfg.CC)
-	if val, _ := reader.ReadString('\n'); strings.TrimSpace(val) != "" { cfg.CC = strings.TrimSpace(val) }
+	if val, _ := reader.ReadString('\n'); strings.TrimSpace(val) != "" {
+		cfg.CC = strings.TrimSpace(val)
+	}
 
 	fmt.Printf("Default mode (binary, source, ask) [%s]: ", cfg.PkgMode)
-	if val, _ := reader.ReadString('\n'); strings.TrimSpace(val) != "" { cfg.PkgMode = strings.ToLower(strings.TrimSpace(val)) }
+	if val, _ := reader.ReadString('\n'); strings.TrimSpace(val) != "" {
+		cfg.PkgMode = strings.ToLower(strings.TrimSpace(val))
+	}
 
 	saveConfig(cfg)
 }
@@ -361,7 +385,7 @@ func bitList(cfg Config) {
 	fmt.Print(string(data))
 }
 
-func bitSync(cfg Config) {
+func bitSync(cfg Config, showList bool) {
 	requireRoot()
 	repoDir := filepath.Join(cfg.BitHome, "repo")
 	fmt.Printf("%s==>%s Syncing packages from %s...\n", ColorGreen, ColorReset, cfg.BitRepo)
@@ -373,6 +397,59 @@ func bitSync(cfg Config) {
 		exec.Command("git", "clone", cfg.BitRepo, repoDir).Run()
 	}
 	fmt.Printf("%s==>%s Sync complete.\n", ColorGreen, ColorReset)
+
+	if showList {
+		listSyncedPackages(cfg)
+	}
+}
+
+func listSyncedPackages(cfg Config) {
+	repoDir := filepath.Join(cfg.BitHome, "repo")
+
+	repoListPath := filepath.Join(repoDir, "repo.list")
+	if data, err := os.ReadFile(repoListPath); err == nil {
+		fmt.Printf("\n%s==>%s Repository Package Manifest (repo.list):%s\n", ColorCyan, ColorBold, ColorReset)
+		fmt.Println("--------------------------------------------------")
+		lines := strings.Split(string(data), "\n")
+		for _, l := range lines {
+			if strings.TrimSpace(l) != "" {
+				fmt.Printf("  • %s\n", strings.TrimSpace(l))
+			}
+		}
+		fmt.Println("--------------------------------------------------")
+		return
+	}
+
+	fmt.Printf("\n%s==>%s Available Repository Packages:%s\n", ColorCyan, ColorBold, ColorReset)
+	mainDir := filepath.Join(repoDir, "main")
+	if _, err := os.Stat(mainDir); os.IsNotExist(err) {
+		mainDir = filepath.Join(repoDir, "repo", "main")
+	}
+	binDir := filepath.Join(repoDir, "binary")
+	if _, err := os.Stat(binDir); os.IsNotExist(err) {
+		binDir = filepath.Join(repoDir, "repo", "binary")
+	}
+
+	entries, err := os.ReadDir(mainDir)
+	if err == nil {
+		fmt.Printf("\n%s[ Source Recipes ]%s\n", ColorBold, ColorReset)
+		for _, e := range entries {
+			if e.IsDir() {
+				fmt.Printf("  • %s\n", e.Name())
+			}
+		}
+	}
+
+	binEntries, err := os.ReadDir(binDir)
+	if err == nil {
+		fmt.Printf("\n%s[ Binary Archives ]%s\n", ColorBold, ColorReset)
+		for _, e := range binEntries {
+			if e.IsDir() {
+				fmt.Printf("  • %s\n", e.Name())
+			}
+		}
+	}
+	fmt.Println()
 }
 
 func bitReinstallSelf(cfg Config) {
@@ -383,38 +460,46 @@ func bitReinstallSelf(cfg Config) {
 
 	exec.Command("git", "clone", "--quiet", cfg.BitRepo, filepath.Join(tempDir, "src")).Run()
 	srcPath := filepath.Join(tempDir, "src")
-	
-	buildCmd := exec.Command(cfg.CC, "-o", "/usr/bin/bit") 
-	// Since bit is in Go, we actually compile with 'go build'
-	buildCmd = exec.Command("go", "build", "-o", "/usr/bin/bit", filepath.Join(srcPath, "main.go"))
+
+	buildCmd := exec.Command("go", "build", "-o", "/usr/bin/bit", "main.go")
 	buildCmd.Dir = srcPath
-	
+
 	if err := buildCmd.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "%sError building bit: %v%s\n", ColorRed, err, ColorReset)
 		os.Exit(1)
 	}
 	os.Chmod("/usr/bin/bit", 0755)
+
 	fmt.Printf("%s==>%s 'bit' successfully updated!\n", ColorGreen, ColorReset)
 	os.Exit(0)
 }
 
 func buildPackage(cfg Config, pkg string, current int, total int, skipConfirm bool, isFileInstall bool) bool {
 	recipeFile := filepath.Join(cfg.BitHome, "repo", "main", pkg, "recipe")
-	if isFileInstall { recipeFile = pkg } // pkg acts as path here
+	if _, err := os.Stat(recipeFile); os.IsNotExist(err) {
+		recipeFile = filepath.Join(cfg.BitHome, "repo", "repo", "main", pkg, "recipe")
+	}
+	if isFileInstall {
+		recipeFile = pkg
+	}
 
 	if _, err := os.Stat(recipeFile); os.IsNotExist(err) {
 		fmt.Printf("%sError: Recipe not found!%s\n", ColorRed, ColorReset)
 		return false
 	}
 
-	if !confirmAction(fmt.Sprintf("\nDo you wish to build %s?", pkg), skipConfirm) { return false }
+	if !confirmAction(fmt.Sprintf("\nDo you wish to build %s?", pkg), skipConfirm) {
+		return false
+	}
 	fmt.Printf("\n%s==>%s Building package (%d of %d) %s%s%s\n\n", ColorGreen, ColorReset, current, total, ColorBold, pkg, ColorReset)
 
 	buildDir := filepath.Join(cfg.BitHome, "build")
 	os.MkdirAll(buildDir, 0755)
-	
+
 	recipeVars := loadRecipe(recipeFile)
-	if !isFileInstall && !resolveDependencies(cfg, pkg, skipConfirm, make(map[string]bool)) { return false }
+	if !isFileInstall && !resolveDependencies(cfg, pkg, skipConfirm, make(map[string]bool)) {
+		return false
+	}
 
 	archivePath := filepath.Join(buildDir, fmt.Sprintf("%s_source_archive", filepath.Base(pkg)))
 	exec.Command("wget", "-q", "--show-progress", recipeVars["SRC_URL"], "-O", archivePath).Run()
@@ -422,7 +507,7 @@ func buildPackage(cfg Config, pkg string, current int, total int, skipConfirm bo
 	pkgSrcDir := filepath.Join(buildDir, fmt.Sprintf("%s_src", filepath.Base(pkg)))
 	os.RemoveAll(pkgSrcDir)
 	os.MkdirAll(pkgSrcDir, 0755)
-	
+
 	if err := exec.Command("tar", "-xf", archivePath, "-C", pkgSrcDir).Run(); err != nil {
 		if err := exec.Command("unzip", "-q", archivePath, "-d", pkgSrcDir).Run(); err != nil {
 			exec.Command("tar", "-xJf", archivePath, "-C", pkgSrcDir).Run()
@@ -432,16 +517,22 @@ func buildPackage(cfg Config, pkg string, current int, total int, skipConfirm bo
 	targetDir := pkgSrcDir
 	entries, _ := os.ReadDir(pkgSrcDir)
 	var dirs []string
-	for _, e := range entries { if e.IsDir() { dirs = append(dirs, filepath.Join(pkgSrcDir, e.Name())) } }
-	if len(dirs) == 1 { targetDir = dirs[0] }
+	for _, e := range entries {
+		if e.IsDir() {
+			dirs = append(dirs, filepath.Join(pkgSrcDir, e.Name()))
+		}
+	}
+	if len(dirs) == 1 {
+		targetDir = dirs[0]
+	}
 
-	envVars := map[string]string{ "PREFIX": cfg.Prefix, "NPROC": cfg.Nproc, "CC": cfg.CC }
-	
+	envVars := map[string]string{"PREFIX": cfg.Prefix, "NPROC": cfg.Nproc, "CC": cfg.CC}
+
 	var buildErr error
 	if cmd, ok := recipeVars["BUILD_CMD"]; ok {
 		buildErr = executeShell(cmd, targetDir, envVars)
 	} else {
-		buildErr = executeShell(fmt.Sprintf("CC=$CC ./configure --prefix=$PREFIX && make -j$NPROC"), targetDir, envVars)
+		buildErr = executeShell("CC=$CC ./configure --prefix=$PREFIX && make -j$NPROC", targetDir, envVars)
 	}
 
 	if buildErr != nil {
@@ -452,22 +543,35 @@ func buildPackage(cfg Config, pkg string, current int, total int, skipConfirm bo
 }
 
 func installPackage(cfg Config, pkg string, skipConfirm bool) bool {
-	if !confirmAction(fmt.Sprintf("\nDo you wish to install %s?", pkg), skipConfirm) { return false }
-	
+	if !confirmAction(fmt.Sprintf("\nDo you wish to install %s?", pkg), skipConfirm) {
+		return false
+	}
+
 	buildSrc := filepath.Join(cfg.BitHome, "build", fmt.Sprintf("%s_src", filepath.Base(pkg)))
 	targetDir := buildSrc
 	if entries, _ := os.ReadDir(buildSrc); len(entries) > 0 {
 		var dirs []string
-		for _, e := range entries { if e.IsDir() { dirs = append(dirs, filepath.Join(buildSrc, e.Name())) } }
-		if len(dirs) == 1 { targetDir = dirs[0] }
+		for _, e := range entries {
+			if e.IsDir() {
+				dirs = append(dirs, filepath.Join(buildSrc, e.Name()))
+			}
+		}
+		if len(dirs) == 1 {
+			targetDir = dirs[0]
+		}
 	}
 
 	recipeFile := filepath.Join(cfg.BitHome, "repo", "main", pkg, "recipe")
-	if _, err := os.Stat(recipeFile); err != nil { recipeFile = pkg } // fallback for file install
+	if _, err := os.Stat(recipeFile); os.IsNotExist(err) {
+		recipeFile = filepath.Join(cfg.BitHome, "repo", "repo", "main", pkg, "recipe")
+	}
+	if _, err := os.Stat(recipeFile); err != nil {
+		recipeFile = pkg
+	}
 
-	envVars := map[string]string{ "PREFIX": cfg.Prefix, "NPROC": cfg.Nproc, "CC": cfg.CC }
+	envVars := map[string]string{"PREFIX": cfg.Prefix, "NPROC": cfg.Nproc, "CC": cfg.CC}
 	recipeVars := loadRecipe(recipeFile)
-	
+
 	var err error
 	if cmd, ok := recipeVars["INSTALL_CMD"]; ok {
 		err = executeShell(cmd, targetDir, envVars)
@@ -479,7 +583,7 @@ func installPackage(cfg Config, pkg string, skipConfirm bool) bool {
 		fmt.Printf("%sError installing: %v%s\n", ColorRed, err, ColorReset)
 		return false
 	}
-	
+
 	markInstalled(cfg, filepath.Base(pkg))
 	fmt.Printf("%s==>%s Successfully installed %s!\n", ColorGreen, ColorReset, pkg)
 	return true
@@ -487,20 +591,35 @@ func installPackage(cfg Config, pkg string, skipConfirm bool) bool {
 
 func bitRemove(cfg Config, pkgs []string, skipConfirm bool) {
 	requireRoot()
-	if len(pkgs) == 0 { os.Exit(1) }
+	if len(pkgs) == 0 {
+		os.Exit(1)
+	}
 	for _, pkg := range pkgs {
-		if !confirmAction(fmt.Sprintf("Remove %s?", pkg), skipConfirm) { continue }
-		
+		if !confirmAction(fmt.Sprintf("Remove %s?", pkg), skipConfirm) {
+			continue
+		}
+
 		buildSrc := filepath.Join(cfg.BitHome, "build", fmt.Sprintf("%s_src", pkg))
 		targetDir := buildSrc
 		if entries, _ := os.ReadDir(buildSrc); len(entries) > 0 {
 			var dirs []string
-			for _, e := range entries { if e.IsDir() { dirs = append(dirs, filepath.Join(buildSrc, e.Name())) } }
-			if len(dirs) == 1 { targetDir = dirs[0] }
+			for _, e := range entries {
+				if e.IsDir() {
+					dirs = append(dirs, filepath.Join(buildSrc, e.Name()))
+				}
+			}
+			if len(dirs) == 1 {
+				targetDir = dirs[0]
+			}
 		}
 
-		vars := loadRecipe(filepath.Join(cfg.BitHome, "repo", "main", pkg, "recipe"))
-		envVars := map[string]string{ "PREFIX": cfg.Prefix }
+		recipeFile := filepath.Join(cfg.BitHome, "repo", "main", pkg, "recipe")
+		if _, err := os.Stat(recipeFile); os.IsNotExist(err) {
+			recipeFile = filepath.Join(cfg.BitHome, "repo", "repo", "main", pkg, "recipe")
+		}
+
+		vars := loadRecipe(recipeFile)
+		envVars := map[string]string{"PREFIX": cfg.Prefix}
 		if cmd, ok := vars["REMOVE_CMD"]; ok {
 			executeShell(cmd, targetDir, envVars)
 		} else {
@@ -508,11 +627,13 @@ func bitRemove(cfg Config, pkgs []string, skipConfirm bool) {
 		}
 
 		os.RemoveAll(buildSrc)
-		// Clean from installed list
+
 		data, _ := os.ReadFile(filepath.Join(cfg.BitHome, "installed"))
 		var newLines []string
 		for _, l := range strings.Split(string(data), "\n") {
-			if strings.TrimSpace(l) != pkg && strings.TrimSpace(l) != "" { newLines = append(newLines, l) }
+			if strings.TrimSpace(l) != pkg && strings.TrimSpace(l) != "" {
+				newLines = append(newLines, l)
+			}
 		}
 		os.WriteFile(filepath.Join(cfg.BitHome, "installed"), []byte(strings.Join(newLines, "\n")+"\n"), 0644)
 		fmt.Printf("%s==>%s Removed %s\n", ColorGreen, ColorReset, pkg)
@@ -521,11 +642,16 @@ func bitRemove(cfg Config, pkgs []string, skipConfirm bool) {
 
 func bitFileInstall(cfg Config, args []string) {
 	requireRoot()
-	if len(args) == 0 { return }
-	
+	if len(args) == 0 {
+		return
+	}
+
 	isBinary := false
 	var target string
 	if args[0] == "-b" {
+		if len(args) < 2 {
+			return
+		}
 		isBinary = true
 		target = args[1]
 	} else {
@@ -547,32 +673,51 @@ func main() {
 	cfg := loadConfig()
 	os.MkdirAll(cfg.BitHome, 0755)
 
-	if len(os.Args) < 2 { usage() }
+	if len(os.Args) < 2 {
+		usage()
+	}
 	cmd, args := os.Args[1], os.Args[2:]
 
 	switch cmd {
-	case "s", "u": bitSync(cfg)
-	case "re": bitReinstallSelf(cfg)
-	case "c": bitConfig()
-	case "l": bitList(cfg)
-	case "fi": bitFileInstall(cfg, args)
+	case "s", "u":
+		showList := false
+		for _, arg := range args {
+			if arg == "-l" {
+				showList = true
+			}
+		}
+		bitSync(cfg, showList)
+	case "re":
+		bitReinstallSelf(cfg)
+	case "c":
+		bitConfig()
+	case "l":
+		bitList(cfg)
+	case "fi":
+		bitFileInstall(cfg, args)
 	case "b", "bi", "i", "r":
 		requireRoot()
 		pkgs, skip := parsePkgArgs(args)
 		for _, pkg := range pkgs {
-			if cmd == "r" { bitRemove(cfg, []string{pkg}, skip); continue }
-			
+			if cmd == "r" {
+				bitRemove(cfg, []string{pkg}, skip)
+				continue
+			}
+
 			mode := determineInstallMode(cfg, pkg, skip)
 			if mode == "binary" {
 				installBinaryDirect(cfg, pkg)
 			} else {
 				if cmd == "b" || cmd == "bi" {
-					if buildPackage(cfg, pkg, 1, 1, skip, false) && cmd == "bi" { installPackage(cfg, pkg, skip) }
+					if buildPackage(cfg, pkg, 1, 1, skip, false) && cmd == "bi" {
+						installPackage(cfg, pkg, skip)
+					}
 				} else if cmd == "i" {
 					installPackage(cfg, pkg, skip)
 				}
 			}
 		}
-	default: usage()
+	default:
+		usage()
 	}
 }
