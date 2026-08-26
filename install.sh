@@ -24,11 +24,7 @@ trap 'rm -rf "$TEMP_BUILD_DIR"' EXIT
 git clone --quiet https://github.com/apiwo/bit.git "$TEMP_BUILD_DIR"
 cd "$TEMP_BUILD_DIR"
 
-if [ ! -f "go.mod" ]; then
-    go mod init bit
-fi
-
-go build -o /usr/bin/bit main.go
+GO111MODULE=off go build -o /usr/bin/bit main.go
 chmod 755 /usr/bin/bit
 
 echo "==> Configuring bit..."
