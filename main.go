@@ -322,7 +322,7 @@ func getBinary(cfg Config, pkg string) bool {
 	recipeVars := loadRecipe(recipeFile)
 	binUrl := recipeVars["BIN_URL"]
 	if binUrl == "" {
-		binUrl = recipeVars["SRC_URL"] // Fallback if they map it similarly
+		binUrl = recipeVars["SRC_URL"]
 	}
 	if binUrl == "" {
 		fmt.Printf("%s==>%s No BIN_URL or SRC_URL defined for binary %s\n", ColorRed, ColorReset, pkg)
@@ -738,11 +738,22 @@ func bitReinstallSelf(cfg Config) {
 	tempDir, _ := os.MkdirTemp("", "bit_src_*")
 	defer os.RemoveAll(tempDir)
 
-	exec.Command("git", "clone", "--quiet", cfg.BitRepo, filepath.Join(tempDir, "src")).Run()
+	bitSourceURL := "https://github.com/apiwo/bit.git" 
+	
+	cloneCmd := exec.Command("git", "clone", "--quiet", bitSourceURL, filepath.Join(tempDir, "src"))
+	cloneCmd.Stdout = os.Stdout
+	cloneCmd.Stderr = os.Stderr
+	if err := cloneCmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error cloning bit source: %v\n", err)
+		os.Exit(1)
+	}
+	
 	srcPath := filepath.Join(tempDir, "src")
 
 	buildCmd := exec.Command("go", "build", "-o", "/usr/bin/bit", "main.go")
 	buildCmd.Dir = srcPath
+	buildCmd.Stdout = os.Stdout
+	buildCmd.Stderr = os.Stderr
 
 	if err := buildCmd.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error building bit: %v\n", err)
@@ -1001,7 +1012,7 @@ func main() {
 		}
 	case "gi":
 		requireRoot()
-		pkgs, skip := parsePkgArgs(args)
+		pkgs, _ := parsePkgArgs(args)
 		for _, pkg := range pkgs {
 			if getBinary(cfg, pkg) {
 				installBinaryDirect(cfg, pkg)
@@ -1017,12 +1028,10 @@ func main() {
 			}
 
 			if cmd == "b" || cmd == "bi" {
-				// Purely source building behavior
 				if buildPackage(cfg, pkg, 1, 1, skip, false) && cmd == "bi" {
 					installPackage(cfg, pkg, skip)
 				}
 			} else if cmd == "i" {
-				// Prefer installing cached binary if it was grabbed with 'g', else install source build
 				binCache := filepath.Join(cfg.BitHome, "cache", "binary", fmt.Sprintf("%s.tar.xz", pkg))
 				if _, err := os.Stat(binCache); err == nil {
 					installBinaryDirect(cfg, pkg)
