@@ -759,7 +759,7 @@ func bitReinstallSelf(cfg Config) {
     tempDir, _ := os.MkdirTemp("", "bit_src_*")
     defer os.RemoveAll(tempDir)
 
-    bitSourceURL := "https://github.com/apiwo/bit.git" 
+    bitSourceURL := "https://github.com/apiwo/bitpkg.git" 
     
     cloneCmd := exec.Command("git", "clone", "--quiet", bitSourceURL, filepath.Join(tempDir, "src"))
     cloneCmd.Stdout = os.Stdout
