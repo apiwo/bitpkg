@@ -300,7 +300,7 @@ func resolveDependencies(cfg Config, pkg string, skipConfirm bool, visited map[s
 		}
 	}
 	if len(missing) == 0 {
-		fmt.Printf("%s==>%s Dependency can be satisfied\n", ColorGreen, ColorReset)
+		fmt.Printf("%s==>%s Dependencies can be satisfied\n", ColorGreen, ColorReset)
 		return true
 	}
 
