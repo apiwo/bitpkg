@@ -21,7 +21,7 @@ echo "==> Compiling bit..."
 TEMP_BUILD_DIR=$(mktemp -d)
 trap 'rm -rf "$TEMP_BUILD_DIR"' EXIT
 
-git clone --quiet https://github.com/apiwo/bit.git "$TEMP_BUILD_DIR"
+git clone --quiet https://github.com/apiwo/bitpkg.git "$TEMP_BUILD_DIR"
 cd "$TEMP_BUILD_DIR"
 
 go build -o /usr/bin/bit main.go
