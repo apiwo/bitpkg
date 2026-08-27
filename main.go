@@ -177,7 +177,24 @@ func loadRecipe(recipePath string) map[string]string {
 }
 
 func executeShell(cmdStr string, dir string, envVars map[string]string) error {
-	cmd := exec.Command("sh", "-c", cmdStr)
+	var finalCmdStr string
+	// Check if cmdStr points directly to a script file in the source directory
+	if !strings.Contains(cmdStr, " ") && (strings.HasSuffix(cmdStr, ".sh") || strings.HasPrefix(cmdStr, "./")) {
+		scriptPath := cmdStr
+		if !filepath.IsAbs(scriptPath) {
+			scriptPath = filepath.Join(dir, scriptPath)
+		}
+		if _, err := os.Stat(scriptPath); err == nil {
+			os.Chmod(scriptPath, 0755)
+			finalCmdStr = fmt.Sprintf("sh ./\"%s\"", filepath.Base(cmdStr))
+		} else {
+			finalCmdStr = cmdStr
+		}
+	} else {
+		finalCmdStr = cmdStr
+	}
+
+	cmd := exec.Command("sh", "-c", finalCmdStr)
 	cmd.Dir = dir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
