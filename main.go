@@ -121,16 +121,17 @@ func requireRoot() {
 func usage() {
 	fmt.Println("bit - Bit package manager (bitpkg)")
 	fmt.Println("Usage:")
-	fmt.Println("  bit, bit h             - Show this help menu")
-	fmt.Println("  bit l                  - List installed packages")
-	fmt.Println("  bit c                  - Open interactive configuration menu")
-	fmt.Println("  bit s [-l], bit u [-l] - Sync repository (-l to list synced packages)")
-	fmt.Println("  bit re                 - Reinstall / update 'bit' itself from GitHub")
-	fmt.Println("  bit b [-s] <pkgs...>   - Build package recipe(s)")
-	fmt.Println("  bit bi [-s] <pkgs...>  - Build and install package recipe(s)")
-	fmt.Println("  bit i [-s] <pkgs...>   - Install already compiled package(s)")
-	fmt.Println("  bit r [-s] <pkgs...>   - Remove package(s) and clean build artifacts")
-	fmt.Println("  bit fi [-b] <path>     - Install from local file/recipe (-b for binary archive)")
+	fmt.Println("  bit, bit h               - Show this help menu")
+	fmt.Println("  bit l                    - List installed packages")
+	fmt.Println("  bit c                    - Open interactive configuration menu")
+	fmt.Println("  bit s [-l], bit u [-l]   - Sync repository (-l to list synced packages)")
+	fmt.Println("  bit q <query>            - Search repositories for a package (closest match)")
+	fmt.Println("  bit re                   - Reinstall / update 'bit' itself from GitHub")
+	fmt.Println("  bit b [-s] <pkgs...>     - Build package recipe(s)")
+	fmt.Println("  bit bi [-s] <pkgs...>    - Build and install package recipe(s)")
+	fmt.Println("  bit i [-s] <pkgs...>     - Install already compiled package(s)")
+	fmt.Println("  bit r [-s] <pkgs...>     - Remove package(s) and clean build artifacts")
+	fmt.Println("  bit fi [-b] <path>       - Install from local file/recipe (-b for binary archive)")
 	os.Exit(0)
 }
 
@@ -349,7 +350,7 @@ func bitConfig() {
 	reader := bufio.NewReader(os.Stdin)
 
 	fmt.Println("=============================================")
-	fmt.Println("          bit Configuration Menu             ")
+	fmt.Println("         bit Configuration Menu              ")
 	fmt.Println("=============================================")
 
 	fmt.Printf("Install prefix directory [%s]: ", cfg.Prefix)
@@ -400,6 +401,126 @@ func bitSync(cfg Config, showList bool) {
 
 	if showList {
 		listSyncedPackages(cfg)
+	}
+}
+
+// Levenshtein distance helper for closest matching
+func levenshteinDistance(s, t string) int {
+	d := make([][]int, len(s)+1)
+	for i := range d {
+		d[i] = make([]int, len(t)+1)
+		d[i][0] = i
+	}
+	for j := range t {
+		d[0][j] = j
+	}
+	for i := 1; i <= len(s); i++ {
+		for j := 1; j <= len(t); j++ {
+			cost := 1
+			if s[i-1] == t[j-1] {
+				cost = 0
+			}
+			d[i][j] = min(
+				d[i-1][j]+1,
+				min(d[i][j-1]+1, d[i-1][j-1]+cost),
+			)
+		}
+	}
+	return d[len(s)][len(t)]
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func bitQuery(cfg Config, args []string) {
+	if len(args) == 0 {
+		fmt.Println("Usage: bit q <query>")
+		return
+	}
+	query := strings.ToLower(strings.TrimSpace(args[0]))
+	repoDir := filepath.Join(cfg.BitHome, "repo")
+
+	mainDir := filepath.Join(repoDir, "main")
+	if _, err := os.Stat(mainDir); os.IsNotExist(err) {
+		mainDir = filepath.Join(repoDir, "repo", "main")
+	}
+	binDir := filepath.Join(repoDir, "binary")
+	if _, err := os.Stat(binDir); os.IsNotExist(err) {
+		binDir = filepath.Join(repoDir, "repo", "binary")
+	}
+
+	packages := make(map[string]map[string]bool) // pkgName -> type (source/binary) -> true
+
+	if entries, err := os.ReadDir(mainDir); err == nil {
+		for _, e := range entries {
+			if e.IsDir() {
+				name := e.Name()
+				if packages[name] == nil {
+					packages[name] = make(map[string]bool)
+				}
+				packages[name]["source"] = true
+			}
+		}
+	}
+
+	if entries, err := os.ReadDir(binDir); err == nil {
+		for _, e := range entries {
+			if e.IsDir() {
+				name := e.Name()
+				if packages[name] == nil {
+					packages[name] = make(map[string]bool)
+				}
+				packages[name]["binary"] = true
+			}
+		}
+	}
+
+	if len(packages) == 0 {
+		fmt.Printf("%s==>%s No packages found in repository. Try running 'bit s' first.\n", ColorYellow, ColorReset)
+		return
+	}
+
+	// Exact match check first
+	if types, exists := packages[query]; exists {
+		var typeList []string
+		if types["source"] {
+			typeList = append(typeList, "Source")
+		}
+		if types["binary"] {
+			typeList = append(typeList, "Binary")
+		}
+		fmt.Printf("%s==>%s Package found: %s%s%s [Type: %s]\n", ColorGreen, ColorReset, ColorBold, query, ColorReset, strings.Join(typeList, ", "))
+		return
+	}
+
+	// Find closest match using Levenshtein distance
+	closestPkg := ""
+	minDist := 999999
+	for pkg := range packages {
+		dist := levenshteinDistance(query, pkg)
+		if dist < minDist {
+			minDist = dist
+			closestPkg = pkg
+		}
+	}
+
+	if closestPkg != "" {
+		types := packages[closestPkg]
+		var typeList []string
+		if types["source"] {
+			typeList = append(typeList, "Source")
+		}
+		if types["binary"] {
+			typeList = append(typeList, "Binary")
+		}
+		fmt.Printf("%s==>%s Package '%s' not found. Did you mean:\n", ColorYellow, ColorReset, query)
+		fmt.Printf("     %s%s%s [Type: %s] (Distance: %d)\n", ColorBold, closestPkg, ColorReset, strings.Join(typeList, ", "), minDist)
+	} else {
+		fmt.Printf("%s==>%s No matching packages found for '%s'.\n", ColorRed, ColorReset, query)
 	}
 }
 
@@ -687,6 +808,8 @@ func main() {
 			}
 		}
 		bitSync(cfg, showList)
+	case "q":
+		bitQuery(cfg, args)
 	case "re":
 		bitReinstallSelf(cfg)
 	case "c":
