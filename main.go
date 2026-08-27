@@ -58,7 +58,7 @@ func loadConfig() Config {
     cfg := Config{
         Prefix:  "/usr",
         BitHome: filepath.Join(home, ".local", "share", "bit"),
-        BitRepo: "https://github.com/apiwo/bitpkg.git",
+        BitRepo: "https://github.com/apiwo/bit.git",
         Nproc:   nprocDefault,
         CC:      "gcc",
         PkgMode: "ask",
@@ -759,7 +759,7 @@ func bitReinstallSelf(cfg Config) {
     tempDir, _ := os.MkdirTemp("", "bit_src_*")
     defer os.RemoveAll(tempDir)
 
-    bitSourceURL := "https://github.com/apiwo/bitpkg.git" 
+    bitSourceURL := "https://github.com/apiwo/bit.git" 
     
     cloneCmd := exec.Command("git", "clone", "--quiet", bitSourceURL, filepath.Join(tempDir, "src"))
     cloneCmd.Stdout = os.Stdout
@@ -1048,7 +1048,7 @@ func main() {
     case "b":
         requireRoot()
         pkgs, skipConfirm := parsePkgArgs(args)
-        total := len(pkgs)
+    total := len(pkgs)
         for i, pkg := range pkgs {
             buildPackage(cfg, pkg, i+1, total, skipConfirm, false)
         }
@@ -1081,4 +1081,4 @@ func main() {
         usage()
     }
 }
-```[cite: 1]
+```[cite: 2]
