@@ -31,13 +31,17 @@ echo "==> Configuring bit..."
 mkdir -p "$CONFIG_DIR"
 mkdir -p "$DATA_DIR"
 
-read -p "Install prefix directory [/usr]: " PREFIX
+# POSIX compliant read prompts
+printf "Install prefix directory [/usr]: "
+read -r PREFIX
 PREFIX=${PREFIX:-/usr}
 
-read -p "Compiler command (gcc, clang, tcc) [gcc]: " CC
+printf "Compiler command (gcc, clang, tcc) [gcc]: "
+read -r CC
 CC=${CC:-gcc}
 
-read -p "Default package mode (binary, source, ask) [ask]: " PKG_MODE
+printf "Default package mode (binary, source, ask) [ask]: "
+read -r PKG_MODE
 PKG_MODE=${PKG_MODE:-ask}
 
 NPROC=$(nproc 2>/dev/null || echo 1)
