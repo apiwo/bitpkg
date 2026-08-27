@@ -284,10 +284,13 @@ func verifyChecksum(filePath string, expectedSum string) bool {
 }
 
 func determineInstallMode(cfg Config, pkg string, skipConfirm bool) string {
-    binaryRecipePath := filepath.Join(cfg.BitHome, "repo", "binary", pkg, "recipe")
+    binaryDirPath := filepath.Join(cfg.BitHome, "repo", "binary", pkg)
     hasBinary := true
-    if _, err := os.Stat(binaryRecipePath); os.IsNotExist(err) {
-        hasBinary = false
+    if _, err := os.Stat(binaryDirPath); os.IsNotExist(err) {
+        binaryDirPath = filepath.Join(cfg.BitHome, "repo", "repo", "binary", pkg)
+        if _, err := os.Stat(binaryDirPath); os.IsNotExist(err) {
+            hasBinary = false
+        }
     }
 
     mode := cfg.PkgMode
@@ -295,7 +298,7 @@ func determineInstallMode(cfg Config, pkg string, skipConfirm bool) string {
         if skipConfirm {
             return "binary"
         }
-        fmt.Printf("Default package? Binary, Source, Ask.\nFound binary recipe for %s. Install binary? [Y/n]: ", pkg)
+        fmt.Printf("Default package? Binary, Source, Ask.\nFound binary package for %s. Install binary? [Y/n]: ", pkg)
         reader := bufio.NewReader(os.Stdin)
         choice, _ := reader.ReadString('\n')
         if strings.ToLower(strings.TrimSpace(choice)) == "n" {
@@ -305,7 +308,7 @@ func determineInstallMode(cfg Config, pkg string, skipConfirm bool) string {
     }
 
     if mode == "binary" && !hasBinary {
-        fmt.Printf("%s==>%s Binary requested but no recipe found for %s, falling back to source.\n", ColorYellow, ColorReset, pkg)
+        fmt.Printf("%s==>%s Binary requested but no package found for %s, falling back to source.\n", ColorYellow, ColorReset, pkg)
         return "source"
     }
 
@@ -313,12 +316,34 @@ func determineInstallMode(cfg Config, pkg string, skipConfirm bool) string {
 }
 
 func getBinary(cfg Config, pkg string) bool {
-    recipeFile := filepath.Join(cfg.BitHome, "repo", "binary", pkg, "recipe")
-    if _, err := os.Stat(recipeFile); os.IsNotExist(err) {
-        fmt.Printf("%s==>%s No binary recipe found for %s\n", ColorRed, ColorReset, pkg)
-        return false
+    binaryDir := filepath.Join(cfg.BitHome, "repo", "binary", pkg)
+    if _, err := os.Stat(binaryDir); os.IsNotExist(err) {
+        binaryDir = filepath.Join(cfg.BitHome, "repo", "repo", "binary", pkg)
+        if _, err := os.Stat(binaryDir); os.IsNotExist(err) {
+            fmt.Printf("%s==>%s No binary package found for %s\n", ColorRed, ColorReset, pkg)
+            return false
+        }
     }
-    
+
+    archivePath := filepath.Join(binaryDir, fmt.Sprintf("%s.tar.xz", pkg))
+    cacheDir := filepath.Join(cfg.BitHome, "cache", "binary")
+    os.MkdirAll(cacheDir, 0755)
+    targetCachePath := filepath.Join(cacheDir, fmt.Sprintf("%s.tar.xz", pkg))
+
+    if _, err := os.Stat(archivePath); err == nil {
+        sourceFile, err := os.Open(archivePath)
+        if err == nil {
+            defer sourceFile.Close()
+            destFile, err := os.Create(targetCachePath)
+            if err == nil {
+                defer destFile.Close()
+                io.Copy(destFile, sourceFile)
+                return true
+            }
+        }
+    }
+
+    recipeFile := filepath.Join(binaryDir, "recipe")
     recipeVars := loadRecipe(recipeFile)
     binUrl := recipeVars["BIN_URL"]
     if binUrl == "" {
@@ -329,12 +354,8 @@ func getBinary(cfg Config, pkg string) bool {
         return false
     }
 
-    cacheDir := filepath.Join(cfg.BitHome, "cache", "binary")
-    os.MkdirAll(cacheDir, 0755)
-    archivePath := filepath.Join(cacheDir, fmt.Sprintf("%s.tar.xz", pkg))
-
     fmt.Printf("%s==>%s Fetching binary archive for %s...\n", ColorGreen, ColorReset, pkg)
-    cmd := exec.Command("wget", "-q", "--show-progress", binUrl, "-O", archivePath)
+    cmd := exec.Command("wget", "-q", "--show-progress", binUrl, "-O", targetCachePath)
     cmd.Stdout = os.Stdout
     cmd.Stderr = os.Stderr
     if err := cmd.Run(); err != nil {
@@ -343,7 +364,7 @@ func getBinary(cfg Config, pkg string) bool {
     }
 
     if sha256sum, ok := recipeVars["SHA256"]; ok && sha256sum != "" {
-        if !verifyChecksum(archivePath, sha256sum) {
+        if !verifyChecksum(targetCachePath, sha256sum) {
             fmt.Printf("%s==>%s Checksum validation failed for downloaded binary %s!\n", ColorRed, ColorReset, pkg)
             return false
         }
@@ -1060,3 +1081,4 @@ func main() {
         usage()
     }
 }
+```[cite: 1]
