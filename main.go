@@ -1021,6 +1021,7 @@ func main() {
 	case "b", "bi", "i", "r":
 		requireRoot()
 		pkgs, skip := parsePkgArgs(args)
+		_ = skip // Suppress 'declared and not used' strict compiler error
 		for _, pkg := range pkgs {
 			if cmd == "r" {
 				bitRemove(cfg, []string{pkg}, skip)
