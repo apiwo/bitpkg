@@ -2,7 +2,10 @@ package main
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -122,9 +125,10 @@ func usage() {
 	fmt.Println("bit - Bit package manager (bitpkg)")
 	fmt.Println("Usage:")
 	fmt.Println("  bit, bit h               - Show this help menu")
-	fmt.Println("  bit l                    - List installed packages")
+	fmt.Println("  bit l                    - List installed packages with versions")
 	fmt.Println("  bit c                    - Open interactive configuration menu")
 	fmt.Println("  bit s [-l], bit u [-l]   - Sync repository (-l to list synced packages)")
+	fmt.Println("  bit upgrade              - Upgrade all installed packages")
 	fmt.Println("  bit q <query>            - Search repositories for a package (closest match)")
 	fmt.Println("  bit re                   - Reinstall / update 'bit' itself from GitHub")
 	fmt.Println("  bit b [-s] <pkgs...>     - Build package recipe(s)")
@@ -203,33 +207,62 @@ func isBinaryInstalled(dep string) bool {
 	return err == nil
 }
 
-func isBitInstalled(cfg Config, dep string) bool {
+func getInstalledMap(cfg Config) map[string]string {
+	installedMap := make(map[string]string)
 	installedFile := filepath.Join(cfg.BitHome, "installed")
 	data, err := os.ReadFile(installedFile)
 	if err != nil {
-		return false
+		return installedMap
 	}
 	for _, line := range strings.Split(string(data), "\n") {
-		if strings.TrimSpace(line) == dep {
-			return true
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "@", 2)
+		if len(parts) == 2 {
+			installedMap[parts[0]] = parts[1]
+		} else {
+			installedMap[parts[0]] = "unknown"
 		}
 	}
-	return false
+	return installedMap
 }
 
-func markInstalled(cfg Config, pkg string) {
+func isBitInstalled(cfg Config, dep string) bool {
+	installedMap := getInstalledMap(cfg)
+	_, exists := installedMap[dep]
+	return exists
+}
+
+func markInstalled(cfg Config, pkg string, version string) {
+	installedMap := getInstalledMap(cfg)
+	installedMap[pkg] = version
+
 	installedFile := filepath.Join(cfg.BitHome, "installed")
-	data, _ := os.ReadFile(installedFile)
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.TrimSpace(line) == pkg {
-			return
-		}
+	var sb strings.Builder
+	for p, v := range installedMap {
+		sb.WriteString(fmt.Sprintf("%s@%s\n", p, v))
 	}
-	f, err := os.OpenFile(installedFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err == nil {
-		f.WriteString(pkg + "\n")
-		f.Close()
+	os.WriteFile(installedFile, []byte(sb.String()), 0644)
+}
+
+func verifyChecksum(filePath string, expectedSum string) bool {
+	if expectedSum == "" {
+		return true
 	}
+	file, err := os.Open(filePath)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return false
+	}
+	actualSum := hex.EncodeToString(hash.Sum(nil))
+	return strings.EqualFold(actualSum, expectedSum)
 }
 
 func determineInstallMode(cfg Config, pkg string, skipConfirm bool) string {
@@ -273,7 +306,7 @@ func installBinaryDirect(cfg Config, pkg string) bool {
 		return false
 	}
 
-	markInstalled(cfg, pkg)
+	markInstalled(cfg, pkg, "bin")
 	fmt.Printf("%s==>%s Successfully installed %s!\n", ColorGreen, ColorReset, pkg)
 	return true
 }
@@ -291,6 +324,7 @@ func resolveDependencies(cfg Config, pkg string, skipConfirm bool, visited map[s
 
 	vars := loadRecipe(recipeFile)
 	if strings.TrimSpace(vars["DEPS"]) == "" {
+		fmt.Printf("%s==>%s Dependencies can be satisfied\n", ColorGreen, ColorReset)
 		return true
 	}
 
@@ -377,8 +411,8 @@ func bitConfig() {
 }
 
 func bitList(cfg Config) {
-	data, err := os.ReadFile(filepath.Join(cfg.BitHome, "installed"))
-	if err != nil {
+	installedMap := getInstalledMap(cfg)
+	if len(installedMap) == 0 {
 		fmt.Printf("\n%s==>%s Installed Packages:\n", ColorCyan, ColorBold)
 		fmt.Println("--------------------------------------------------")
 		fmt.Println("  (No packages installed yet)")
@@ -386,27 +420,10 @@ func bitList(cfg Config) {
 		return
 	}
 
-	lines := strings.Split(string(data), "\n")
-	var packages []string
-	for _, l := range lines {
-		trimmed := strings.TrimSpace(l)
-		if trimmed != "" {
-			packages = append(packages, trimmed)
-		}
-	}
-
-	if len(packages) == 0 {
-		fmt.Printf("\n%s==>%s Installed Packages:\n", ColorCyan, ColorBold)
-		fmt.Println("--------------------------------------------------")
-		fmt.Println("  (No packages installed yet)")
-		fmt.Println("--------------------------------------------------\n")
-		return
-	}
-
-	fmt.Printf("\n%s==>%s Installed Packages (%d total):%s\n", ColorCyan, ColorBold, len(packages), ColorReset)
+	fmt.Printf("\n%s==>%s Installed Packages (%d total):%s\n", ColorCyan, ColorBold, len(installedMap), ColorReset)
 	fmt.Println("--------------------------------------------------")
-	for _, pkg := range packages {
-		fmt.Printf("  %s•%s %s%s%s\n", ColorGreen, ColorReset, ColorBold, pkg, ColorReset)
+	for pkg, ver := range installedMap {
+		fmt.Printf("  %s•%s %s%-15s%s [version: %s]\n", ColorGreen, ColorReset, ColorBold, pkg, ColorReset, ver)
 	}
 	fmt.Println("--------------------------------------------------\n")
 }
@@ -429,7 +446,39 @@ func bitSync(cfg Config, showList bool) {
 	}
 }
 
-// Levenshtein distance helper for closest matching
+func bitUpgrade(cfg Config) {
+	requireRoot()
+	installedMap := getInstalledMap(cfg)
+	if len(installedMap) == 0 {
+		fmt.Println("No packages installed to upgrade.")
+		return
+	}
+
+	fmt.Printf("%s==>%s Checking for package updates...\n", ColorGreen, ColorReset)
+	for pkg, currentVer := range installedMap {
+		recipeFile := filepath.Join(cfg.BitHome, "repo", "main", pkg, "recipe")
+		if _, err := os.Stat(recipeFile); os.IsNotExist(err) {
+			recipeFile = filepath.Join(cfg.BitHome, "repo", "repo", "main", pkg, "recipe")
+		}
+		vars := loadRecipe(recipeFile)
+		repoVer := vars["VERSION"]
+
+		if repoVer != "" && repoVer != currentVer {
+			fmt.Printf("%s==>%s Upgrading %s from %s to %s...\n", ColorGreen, ColorReset, pkg, currentVer, repoVer)
+			mode := determineInstallMode(cfg, pkg, true)
+			if mode == "binary" {
+				installBinaryDirect(cfg, pkg)
+			} else {
+				if buildPackage(cfg, pkg, 1, 1, true, false) {
+					installPackage(cfg, pkg, true)
+				}
+			}
+		} else {
+			fmt.Printf("  • %s is already up to date (%s).\n", pkg, currentVer)
+		}
+	}
+}
+
 func levenshteinDistance(s, t string) int {
 	d := make([][]int, len(s)+1)
 	for i := range d {
@@ -478,7 +527,7 @@ func bitQuery(cfg Config, args []string) {
 		binDir = filepath.Join(repoDir, "repo", "binary")
 	}
 
-	packages := make(map[string]map[string]bool) // pkgName -> type (source/binary) -> true
+	packages := make(map[string]map[string]bool)
 
 	if entries, err := os.ReadDir(mainDir); err == nil {
 		for _, e := range entries {
@@ -509,7 +558,6 @@ func bitQuery(cfg Config, args []string) {
 		return
 	}
 
-	// Exact match check first
 	if types, exists := packages[query]; exists {
 		var typeList []string
 		if types["source"] {
@@ -518,11 +566,21 @@ func bitQuery(cfg Config, args []string) {
 		if types["binary"] {
 			typeList = append(typeList, "Binary")
 		}
+		recipeFile := filepath.Join(mainDir, query, "recipe")
+		vars := loadRecipe(recipeFile)
+		ver := vars["VERSION"]
+		desc := vars["DESC"]
+		
 		fmt.Printf("%s==>%s Package found: %s%s%s [Type: %s]\n", ColorGreen, ColorReset, ColorBold, query, ColorReset, strings.Join(typeList, ", "))
+		if ver != "" {
+			fmt.Printf("  Version: %s\n", ver)
+		}
+		if desc != "" {
+			fmt.Printf("  Description: %s\n", desc)
+		}
 		return
 	}
 
-	// Find closest match using Levenshtein distance
 	closestPkg := ""
 	minDist := 999999
 	for pkg := range packages {
@@ -650,6 +708,14 @@ func buildPackage(cfg Config, pkg string, current int, total int, skipConfirm bo
 	archivePath := filepath.Join(buildDir, fmt.Sprintf("%s_source_archive", filepath.Base(pkg)))
 	exec.Command("wget", "-q", "--show-progress", recipeVars["SRC_URL"], "-O", archivePath).Run()
 
+	if sha256sum, ok := recipeVars["SHA256"]; ok && sha256sum != "" {
+		if !verifyChecksum(archivePath, sha256sum) {
+			fmt.Printf("%sError: Checksum validation failed for %s!%s\n", ColorRed, pkg, ColorReset)
+			return false
+		}
+		fmt.Printf("%s==>%s Checksum verified successfully.\n", ColorGreen, ColorReset)
+	}
+
 	pkgSrcDir := filepath.Join(buildDir, fmt.Sprintf("%s_src", filepath.Base(pkg)))
 	os.RemoveAll(pkgSrcDir)
 	os.MkdirAll(pkgSrcDir, 0755)
@@ -730,7 +796,12 @@ func installPackage(cfg Config, pkg string, skipConfirm bool) bool {
 		return false
 	}
 
-	markInstalled(cfg, filepath.Base(pkg))
+	version := recipeVars["VERSION"]
+	if version == "" {
+		version = "unknown"
+	}
+
+	markInstalled(cfg, filepath.Base(pkg), version)
 	fmt.Printf("%s==>%s Successfully installed %s!\n", ColorGreen, ColorReset, pkg)
 	return true
 }
@@ -774,14 +845,15 @@ func bitRemove(cfg Config, pkgs []string, skipConfirm bool) {
 
 		os.RemoveAll(buildSrc)
 
-		data, _ := os.ReadFile(filepath.Join(cfg.BitHome, "installed"))
-		var newLines []string
-		for _, l := range strings.Split(string(data), "\n") {
-			if strings.TrimSpace(l) != pkg && strings.TrimSpace(l) != "" {
-				newLines = append(newLines, l)
-			}
+		installedMap := getInstalledMap(cfg)
+		delete(installedMap, pkg)
+		installedFile := filepath.Join(cfg.BitHome, "installed")
+		var sb strings.Builder
+		for p, v := range installedMap {
+			sb.WriteString(fmt.Sprintf("%s@%s\n", p, v))
 		}
-		os.WriteFile(filepath.Join(cfg.BitHome, "installed"), []byte(strings.Join(newLines, "\n")+"\n"), 0644)
+		os.WriteFile(installedFile, []byte(sb.String()), 0644)
+
 		fmt.Printf("%s==>%s Removed %s\n", ColorGreen, ColorReset, pkg)
 	}
 }
@@ -807,7 +879,7 @@ func bitFileInstall(cfg Config, args []string) {
 	if isBinary {
 		fmt.Printf("\n%s==>%s Extracting binary %s to %s\n", ColorGreen, ColorReset, target, cfg.Prefix)
 		exec.Command("tar", "-xJf", target, "-C", cfg.Prefix).Run()
-		markInstalled(cfg, filepath.Base(target))
+		markInstalled(cfg, filepath.Base(target), "bin")
 	} else {
 		if buildPackage(cfg, target, 1, 1, true, true) {
 			installPackage(cfg, target, true)
@@ -833,6 +905,8 @@ func main() {
 			}
 		}
 		bitSync(cfg, showList)
+	case "upgrade":
+		bitUpgrade(cfg)
 	case "q":
 		bitQuery(cfg, args)
 	case "re":
