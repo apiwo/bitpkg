@@ -31,7 +31,6 @@ echo "==> Configuring bit..."
 mkdir -p "$CONFIG_DIR"
 mkdir -p "$DATA_DIR"
 
-# POSIX compliant read prompts
 printf "Install prefix directory [/usr]: "
 read -r PREFIX
 PREFIX=${PREFIX:-/usr}
