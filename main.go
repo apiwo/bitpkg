@@ -377,13 +377,38 @@ func bitConfig() {
 }
 
 func bitList(cfg Config) {
-	fmt.Printf("%s==>%s Installed packages:\n", ColorGreen, ColorReset)
 	data, err := os.ReadFile(filepath.Join(cfg.BitHome, "installed"))
-	if err != nil || len(strings.TrimSpace(string(data))) == 0 {
+	if err != nil {
+		fmt.Printf("\n%s==>%s Installed Packages:\n", ColorCyan, ColorBold)
+		fmt.Println("--------------------------------------------------")
 		fmt.Println("  (No packages installed yet)")
+		fmt.Println("--------------------------------------------------\n")
 		return
 	}
-	fmt.Print(string(data))
+
+	lines := strings.Split(string(data), "\n")
+	var packages []string
+	for _, l := range lines {
+		trimmed := strings.TrimSpace(l)
+		if trimmed != "" {
+			packages = append(packages, trimmed)
+		}
+	}
+
+	if len(packages) == 0 {
+		fmt.Printf("\n%s==>%s Installed Packages:\n", ColorCyan, ColorBold)
+		fmt.Println("--------------------------------------------------")
+		fmt.Println("  (No packages installed yet)")
+		fmt.Println("--------------------------------------------------\n")
+		return
+	}
+
+	fmt.Printf("\n%s==>%s Installed Packages (%d total):%s\n", ColorCyan, ColorBold, len(packages), ColorReset)
+	fmt.Println("--------------------------------------------------")
+	for _, pkg := range packages {
+		fmt.Printf("  %s•%s %s%s%s\n", ColorGreen, ColorReset, ColorBold, pkg, ColorReset)
+	}
+	fmt.Println("--------------------------------------------------\n")
 }
 
 func bitSync(cfg Config, showList bool) {
