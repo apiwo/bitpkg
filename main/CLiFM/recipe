@@ -1,0 +1,5 @@
+DEPS="ninja meson pkg-config git"
+SRC_URL="https://github.com/leo-arch/clifm/archive/refs/tags/v1.16.tar.gz"
+BUILD_CMD="meson setup build --prefix=$PREFIX && meson compile -C build"
+INSTALL_CMD="meson install -C build"
+REMOVE_CMD="rm -f $PREFIX/bin/clifm"
