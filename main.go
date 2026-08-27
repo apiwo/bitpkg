@@ -450,7 +450,7 @@ func bitConfig() {
 	reader := bufio.NewReader(os.Stdin)
 
 	fmt.Println("=============================================")
-	fmt.Println("         bit Configuration Menu              ")
+	fmt.Println("             bit Configuration Menu          ")
 	fmt.Println("=============================================")
 
 	fmt.Printf("Install prefix directory [%s]: ", cfg.Prefix)
@@ -976,17 +976,25 @@ func bitFileInstall(cfg Config, args []string) {
 
 func main() {
 	cfg := loadConfig()
-	os.MkdirAll(cfg.BitHome, 0755)
+	args := os.Args[1:]
 
-	if len(os.Args) < 2 {
+	if len(args) == 0 {
 		usage()
 	}
-	cmd, args := os.Args[1], os.Args[2:]
+
+	cmd := args[0]
+	subArgs := args[1:]
 
 	switch cmd {
+	case "h", "help":
+		usage()
+	case "l":
+		bitList(cfg)
+	case "c":
+		bitConfig()
 	case "s", "u":
 		showList := false
-		for _, arg := range args {
+		for _, arg := range subArgs {
 			if arg == "-l" {
 				showList = true
 			}
@@ -995,52 +1003,76 @@ func main() {
 	case "upgrade":
 		bitUpgrade(cfg)
 	case "q":
-		bitQuery(cfg, args)
+		bitQuery(cfg, subArgs)
 	case "re":
 		bitReinstallSelf(cfg)
-	case "c":
-		bitConfig()
-	case "l":
-		bitList(cfg)
-	case "fi":
-		bitFileInstall(cfg, args)
 	case "g":
-		requireRoot()
-		pkgs, _ := parsePkgArgs(args)
+		pkgs, skip := parsePkgArgs(subArgs)
+		if len(pkgs) == 0 {
+			fmt.Println("Usage: bit g [-s] <pkgs...>")
+			return
+		}
 		for _, pkg := range pkgs {
-			getBinary(cfg, pkg)
+			mode := determineInstallMode(cfg, pkg, skip)
+			if mode == "binary" {
+				getBinary(cfg, pkg)
+			} else {
+				fmt.Printf("%s==>%s No binary recipe available for %s to fetch.\n", ColorYellow, ColorReset, pkg)
+			}
 		}
 	case "gi":
+		pkgs, skip := parsePkgArgs(subArgs)
+		if len(pkgs) == 0 {
+			fmt.Println("Usage: bit gi [-s] <pkgs...>")
+			return
+		}
 		requireRoot()
-		pkgs, _ := parsePkgArgs(args)
 		for _, pkg := range pkgs {
 			if getBinary(cfg, pkg) {
 				installBinaryDirect(cfg, pkg)
 			}
 		}
-	case "b", "bi", "i", "r":
+	case "b":
+		pkgs, skip := parsePkgArgs(subArgs)
+		if len(pkgs) == 0 {
+			fmt.Println("Usage: bit b [-s] <pkgs...>")
+			return
+		}
+		for i, pkg := range pkgs {
+			buildPackage(cfg, pkg, i+1, len(pkgs), skip, false)
+		}
+	case "bi":
+		pkgs, skip := parsePkgArgs(subArgs)
+		if len(pkgs) == 0 {
+			fmt.Println("Usage: bit bi [-s] <pkgs...>")
+			return
+		}
 		requireRoot()
-		pkgs, skip := parsePkgArgs(args)
-		_ = skip // Suppress 'declared and not used' strict compiler error
-		for _, pkg := range pkgs {
-			if cmd == "r" {
-				bitRemove(cfg, []string{pkg}, skip)
-				continue
-			}
-
-			if cmd == "b" || cmd == "bi" {
-				if buildPackage(cfg, pkg, 1, 1, skip, false) && cmd == "bi" {
-					installPackage(cfg, pkg, skip)
-				}
-			} else if cmd == "i" {
-				binCache := filepath.Join(cfg.BitHome, "cache", "binary", fmt.Sprintf("%s.tar.xz", pkg))
-				if _, err := os.Stat(binCache); err == nil {
-					installBinaryDirect(cfg, pkg)
-				} else {
-					installPackage(cfg, pkg, skip)
-				}
+		for i, pkg := range pkgs {
+			if buildPackage(cfg, pkg, i+1, len(pkgs), skip, false) {
+				installPackage(cfg, pkg, skip)
 			}
 		}
+	case "i":
+		pkgs, skip := parsePkgArgs(subArgs)
+		if len(pkgs) == 0 {
+			fmt.Println("Usage: bit i [-s] <pkgs...>")
+			return
+		}
+		requireRoot()
+		for _, pkg := range pkgs {
+			mode := determineInstallMode(cfg, pkg, skip)
+			if mode == "binary" {
+				installBinaryDirect(cfg, pkg)
+			} else {
+				installPackage(cfg, pkg, skip)
+			}
+		}
+	case "r":
+		pkgs, skip := parsePkgArgs(subArgs)
+		bitRemove(cfg, pkgs, skip)
+	case "fi":
+		bitFileInstall(cfg, subArgs)
 	default:
 		usage()
 	}
