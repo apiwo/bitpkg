@@ -131,9 +131,11 @@ func usage() {
 	fmt.Println("  bit upgrade               - Upgrade all installed packages")
 	fmt.Println("  bit q <query>             - Search repositories for a package (closest match)")
 	fmt.Println("  bit re                    - Reinstall / update 'bit' itself from GitHub")
-	fmt.Println("  bit b [-s] <pkgs...>      - Build package recipe(s)")
-	fmt.Println("  bit bi [-s] <pkgs...>     - Build and install package recipe(s)")
-	fmt.Println("  bit i [-s] <pkgs...>      - Install already compiled package(s)")
+	fmt.Println("  bit g <pkgs...>           - Get (fetch) binary package(s)")
+	fmt.Println("  bit gi [-s] <pkgs...>     - Get and install binary package(s)")
+	fmt.Println("  bit b [-s] <pkgs...>      - Build package recipe(s) from source")
+	fmt.Println("  bit bi [-s] <pkgs...>     - Build and install package recipe(s) from source")
+	fmt.Println("  bit i [-s] <pkgs...>      - Install an already fetched binary or built source package")
 	fmt.Println("  bit r [-s] <pkgs...>      - Remove package(s) and clean build artifacts")
 	fmt.Println("  bit fi [-b] <path>        - Install from local file/recipe (-b for binary archive)")
 	os.Exit(0)
@@ -282,9 +284,9 @@ func verifyChecksum(filePath string, expectedSum string) bool {
 }
 
 func determineInstallMode(cfg Config, pkg string, skipConfirm bool) string {
-	binaryPath := filepath.Join(cfg.BitHome, "repo", "binary", pkg, fmt.Sprintf("%s.tar.xz", pkg))
+	binaryRecipePath := filepath.Join(cfg.BitHome, "repo", "binary", pkg, "recipe")
 	hasBinary := true
-	if _, err := os.Stat(binaryPath); os.IsNotExist(err) {
+	if _, err := os.Stat(binaryRecipePath); os.IsNotExist(err) {
 		hasBinary = false
 	}
 
@@ -293,7 +295,7 @@ func determineInstallMode(cfg Config, pkg string, skipConfirm bool) string {
 		if skipConfirm {
 			return "binary"
 		}
-		fmt.Printf("Default package? Binary, Source, Ask.\nFound binary for %s. Install binary? [Y/n]: ", pkg)
+		fmt.Printf("Default package? Binary, Source, Ask.\nFound binary recipe for %s. Install binary? [Y/n]: ", pkg)
 		reader := bufio.NewReader(os.Stdin)
 		choice, _ := reader.ReadString('\n')
 		if strings.ToLower(strings.TrimSpace(choice)) == "n" {
@@ -303,18 +305,64 @@ func determineInstallMode(cfg Config, pkg string, skipConfirm bool) string {
 	}
 
 	if mode == "binary" && !hasBinary {
-		fmt.Printf("%s==>%s Binary requested but not found for %s, falling back to source.\n", ColorYellow, ColorReset, pkg)
+		fmt.Printf("%s==>%s Binary requested but no recipe found for %s, falling back to source.\n", ColorYellow, ColorReset, pkg)
 		return "source"
 	}
 
 	return mode
 }
 
+func getBinary(cfg Config, pkg string) bool {
+	recipeFile := filepath.Join(cfg.BitHome, "repo", "binary", pkg, "recipe")
+	if _, err := os.Stat(recipeFile); os.IsNotExist(err) {
+		fmt.Printf("%s==>%s No binary recipe found for %s\n", ColorRed, ColorReset, pkg)
+		return false
+	}
+	
+	recipeVars := loadRecipe(recipeFile)
+	binUrl := recipeVars["BIN_URL"]
+	if binUrl == "" {
+		binUrl = recipeVars["SRC_URL"] // Fallback if they map it similarly
+	}
+	if binUrl == "" {
+		fmt.Printf("%s==>%s No BIN_URL or SRC_URL defined for binary %s\n", ColorRed, ColorReset, pkg)
+		return false
+	}
+
+	cacheDir := filepath.Join(cfg.BitHome, "cache", "binary")
+	os.MkdirAll(cacheDir, 0755)
+	archivePath := filepath.Join(cacheDir, fmt.Sprintf("%s.tar.xz", pkg))
+
+	fmt.Printf("%s==>%s Fetching binary archive for %s...\n", ColorGreen, ColorReset, pkg)
+	cmd := exec.Command("wget", "-q", "--show-progress", binUrl, "-O", archivePath)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("%s==>%s Failed to fetch binary: %v\n", ColorRed, ColorReset, err)
+		return false
+	}
+
+	if sha256sum, ok := recipeVars["SHA256"]; ok && sha256sum != "" {
+		if !verifyChecksum(archivePath, sha256sum) {
+			fmt.Printf("%s==>%s Checksum validation failed for downloaded binary %s!\n", ColorRed, ColorReset, pkg)
+			return false
+		}
+		fmt.Printf("%s==>%s Checksum verified successfully.\n", ColorGreen, ColorReset)
+	}
+	return true
+}
+
 func installBinaryDirect(cfg Config, pkg string) bool {
-	binaryPath := filepath.Join(cfg.BitHome, "repo", "binary", pkg, fmt.Sprintf("%s.tar.xz", pkg))
+	archivePath := filepath.Join(cfg.BitHome, "cache", "binary", fmt.Sprintf("%s.tar.xz", pkg))
+	
+	if _, err := os.Stat(archivePath); os.IsNotExist(err) {
+		fmt.Printf("%s==>%s Binary archive not found locally. Please run 'bit g %s' first.\n", ColorRed, ColorReset, pkg)
+		return false
+	}
+
 	fmt.Printf("%s==>%s Installing binary package %s to %s\n", ColorGreen, ColorReset, pkg, cfg.Prefix)
 
-	cmd := exec.Command("tar", "-xJf", binaryPath, "-C", cfg.Prefix)
+	cmd := exec.Command("tar", "-xJf", archivePath, "-C", cfg.Prefix)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -385,7 +433,9 @@ func resolveDependencies(cfg Config, pkg string, skipConfirm bool, visited map[s
 
 		mode := determineInstallMode(cfg, dep, skipConfirm)
 		if mode == "binary" {
-			installBinaryDirect(cfg, dep)
+			if getBinary(cfg, dep) {
+				installBinaryDirect(cfg, dep)
+			}
 		} else {
 			if buildPackage(cfg, dep, 1, 1, skipConfirm, false) {
 				installPackage(cfg, dep, skipConfirm)
@@ -483,7 +533,9 @@ func bitUpgrade(cfg Config) {
 			fmt.Printf("%s==>%s Upgrading %s from %s to %s...\n", ColorGreen, ColorReset, pkg, currentVer, repoVer)
 			mode := determineInstallMode(cfg, pkg, true)
 			if mode == "binary" {
-				installBinaryDirect(cfg, pkg)
+				if getBinary(cfg, pkg) {
+					installBinaryDirect(cfg, pkg)
+				}
 			} else {
 				if buildPackage(cfg, pkg, 1, 1, true, false) {
 					installPackage(cfg, pkg, true)
@@ -670,7 +722,7 @@ func listSyncedPackages(cfg Config) {
 
 	binEntries, err := os.ReadDir(binDir)
 	if err == nil {
-		fmt.Println("\n[ Binary Archives ]")
+		fmt.Println("\n[ Binary Recipes ]")
 		for _, e := range binEntries {
 			if e.IsDir() {
 				fmt.Printf("  • %s\n", e.Name())
@@ -716,7 +768,7 @@ func buildPackage(cfg Config, pkg string, current int, total int, skipConfirm bo
 		return false
 	}
 
-	if !confirmAction(fmt.Sprintf("Do you wish to build %s?", pkg), skipConfirm) {
+	if !confirmAction(fmt.Sprintf("Do you wish to build source for %s?", pkg), skipConfirm) {
 		return false
 	}
 	fmt.Printf("%s==>%s Building package (%s%d%s of %s%d%s) %s\n", ColorGreen, ColorReset, ColorYellow, current, ColorReset, ColorYellow, total, ColorReset, pkg)
@@ -779,7 +831,7 @@ func buildPackage(cfg Config, pkg string, current int, total int, skipConfirm bo
 }
 
 func installPackage(cfg Config, pkg string, skipConfirm bool) bool {
-	if !confirmAction(fmt.Sprintf("Do you wish to install %s?", pkg), skipConfirm) {
+	if !confirmAction(fmt.Sprintf("Do you wish to install compiled source %s?", pkg), skipConfirm) {
 		return false
 	}
 
@@ -941,6 +993,20 @@ func main() {
 		bitList(cfg)
 	case "fi":
 		bitFileInstall(cfg, args)
+	case "g":
+		requireRoot()
+		pkgs, _ := parsePkgArgs(args)
+		for _, pkg := range pkgs {
+			getBinary(cfg, pkg)
+		}
+	case "gi":
+		requireRoot()
+		pkgs, skip := parsePkgArgs(args)
+		for _, pkg := range pkgs {
+			if getBinary(cfg, pkg) {
+				installBinaryDirect(cfg, pkg)
+			}
+		}
 	case "b", "bi", "i", "r":
 		requireRoot()
 		pkgs, skip := parsePkgArgs(args)
@@ -950,15 +1016,17 @@ func main() {
 				continue
 			}
 
-			mode := determineInstallMode(cfg, pkg, skip)
-			if mode == "binary" {
-				installBinaryDirect(cfg, pkg)
-			} else {
-				if cmd == "b" || cmd == "bi" {
-					if buildPackage(cfg, pkg, 1, 1, skip, false) && cmd == "bi" {
-						installPackage(cfg, pkg, skip)
-					}
-				} else if cmd == "i" {
+			if cmd == "b" || cmd == "bi" {
+				// Purely source building behavior
+				if buildPackage(cfg, pkg, 1, 1, skip, false) && cmd == "bi" {
+					installPackage(cfg, pkg, skip)
+				}
+			} else if cmd == "i" {
+				// Prefer installing cached binary if it was grabbed with 'g', else install source build
+				binCache := filepath.Join(cfg.BitHome, "cache", "binary", fmt.Sprintf("%s.tar.xz", pkg))
+				if _, err := os.Stat(binCache); err == nil {
+					installBinaryDirect(cfg, pkg)
+				} else {
 					installPackage(cfg, pkg, skip)
 				}
 			}
